@@ -1,0 +1,16 @@
+{
+  "name": "つくる〜と",
+  "short_name": "つくる〜と",
+  "description": "ゲーム制作向け・かんたんガント管理ツール",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f1f5f9",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "48x48",
+      "type": "image/x-icon"
+    }
+  ]
+}
