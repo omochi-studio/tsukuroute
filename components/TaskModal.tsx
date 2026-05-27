@@ -1,79 +1,112 @@
+"use client";
+
 import type { WorkdayMode } from "@/types/gantt";
 
-type TaskModalMode = "add" | "edit";
-
 type Props = {
-  mode: TaskModalMode;
+  mode: "add" | "edit";
   projectName: string;
+
   taskName: string;
   category: string;
+
+  assignee1: string;
+  assignee2: string;
+  assignee3: string;
+
   startDate: string;
   duration: number;
   progress: number;
+
   workdayMode: WorkdayMode;
+  customWorkdays: number[];
+
   projectStartDate: string;
   projectEndDate: string;
   maxDuration: number;
-  customWorkdays: number[];
-  assignee: string;
-  onChangeAssignee: (value: string) => void;
+
   onChangeTaskName: (value: string) => void;
   onChangeCategory: (value: string) => void;
+
+  onChangeAssignee1: (value: string) => void;
+  onChangeAssignee2: (value: string) => void;
+  onChangeAssignee3: (value: string) => void;
+
   onChangeStartDate: (value: string) => void;
   onChangeDuration: (value: number) => void;
   onChangeProgress: (value: number) => void;
+
   onChangeWorkdayMode: (value: WorkdayMode) => void;
+  onToggleCustomWorkday: (day: number) => void;
+
   onClose: () => void;
   onSubmit: () => void;
   onDelete?: () => void;
-  onToggleCustomWorkday: (day: number) => void;
 };
+
+const WEEKDAYS = [
+  { label: "月", value: 1 },
+  { label: "火", value: 2 },
+  { label: "水", value: 3 },
+  { label: "木", value: 4 },
+  { label: "金", value: 5 },
+  { label: "土", value: 6 },
+  { label: "日", value: 0 },
+];
 
 export default function TaskModal({
   mode,
   projectName,
+
   taskName,
   category,
+
+  assignee1,
+  assignee2,
+  assignee3,
+
   startDate,
   duration,
   progress,
+
   workdayMode,
+  customWorkdays,
+
   projectStartDate,
   projectEndDate,
   maxDuration,
-  customWorkdays,
-  assignee,
-  onChangeAssignee,
-  onToggleCustomWorkday,
+
   onChangeTaskName,
   onChangeCategory,
+
+  onChangeAssignee1,
+  onChangeAssignee2,
+  onChangeAssignee3,
+
   onChangeStartDate,
   onChangeDuration,
   onChangeProgress,
+
   onChangeWorkdayMode,
+  onToggleCustomWorkday,
+
   onClose,
   onSubmit,
   onDelete,
-
 }: Props) {
-  const isEdit = mode === "edit";
+  const title = mode === "add" ? "タスク追加" : "タスク編集";
+  const submitText = mode === "add" ? "追加" : "保存";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl">
-        <div className="mb-5 flex items-center justify-between">
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+        <div className="mb-5 flex items-center justify-between gap-4">
           <div>
-            <h2 className="text-xl font-bold">
-              {isEdit ? "タスク編集" : "タスク追加"}
-            </h2>
-            <p className="text-sm text-slate-500">
-              {isEdit
-                ? "タスク内容を変更できます"
-                : `${projectName} に新しいタスクを追加します`}
-            </p>
+            <h2 className="text-xl font-bold text-slate-900">{title}</h2>
+            <p className="text-sm text-slate-500">{projectName}</p>
           </div>
 
           <button
+            type="button"
             onClick={onClose}
             className="rounded-lg px-3 py-1 text-slate-500 hover:bg-slate-100"
           >
@@ -81,7 +114,7 @@ export default function TaskModal({
           </button>
         </div>
 
-        <div className="space-y-4">
+        <div className="grid gap-4">
           <div>
             <label className="mb-1 block text-sm font-bold text-slate-600">
               タスク名
@@ -90,8 +123,8 @@ export default function TaskModal({
               type="text"
               value={taskName}
               onChange={(e) => onChangeTaskName(e.target.value)}
-              placeholder="例：ボス実装"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2"
+              placeholder="例：キャラクターモデル作成"
+              className="w-full rounded-xl border border-slate-300 px-4 py-2"
             />
           </div>
 
@@ -102,33 +135,51 @@ export default function TaskModal({
             <select
               value={category}
               onChange={(e) => onChangeCategory(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2"
+              className="w-full rounded-xl border border-slate-300 px-4 py-2"
             >
               <option value="未分類">未分類</option>
-              <option value="企画">企画</option>
               <option value="プログラム">プログラム</option>
-              <option value="モデル">モデル</option>
               <option value="UI">UI</option>
+              <option value="モデル">モデル</option>
               <option value="サウンド">サウンド</option>
-              <option value="デバッグ">デバッグ</option>
-              <option value="custom">カスタム</option>
+              <option value="企画">企画</option>
+              <option value="その他">その他</option>
             </select>
+          </div>
 
-            <div>
-              <label className="mb-1 block text-sm font-bold text-slate-600">
-                担当者
-              </label>
+          <div>
+            <label className="mb-1 block text-sm font-bold text-slate-600">
+              担当者 最大3人
+            </label>
+
+            <div className="grid gap-2 sm:grid-cols-3">
               <input
                 type="text"
-                value={assignee}
-                onChange={(e) => onChangeAssignee(e.target.value)}
-                placeholder="例：田中　太郎"
-                className="w-full rounded-lg border border-slate-300 px-3 py-2"
+                value={assignee1}
+                onChange={(e) => onChangeAssignee1(e.target.value)}
+                placeholder="担当者1"
+                className="w-full rounded-xl border border-slate-300 px-4 py-2"
+              />
+
+              <input
+                type="text"
+                value={assignee2}
+                onChange={(e) => onChangeAssignee2(e.target.value)}
+                placeholder="担当者2"
+                className="w-full rounded-xl border border-slate-300 px-4 py-2"
+              />
+
+              <input
+                type="text"
+                value={assignee3}
+                onChange={(e) => onChangeAssignee3(e.target.value)}
+                placeholder="担当者3"
+                className="w-full rounded-xl border border-slate-300 px-4 py-2"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-sm font-bold text-slate-600">
                 開始日
@@ -139,7 +190,7 @@ export default function TaskModal({
                 min={projectStartDate}
                 max={projectEndDate}
                 onChange={(e) => onChangeStartDate(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2"
+                className="w-full rounded-xl border border-slate-300 px-4 py-2"
               />
             </div>
 
@@ -150,10 +201,12 @@ export default function TaskModal({
               <input
                 type="number"
                 min={1}
-                max={maxDuration}
+                max={Math.max(maxDuration, 1)}
                 value={duration}
-                onChange={(e) => onChangeDuration(Number(e.target.value))}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2"
+                onChange={(e) =>
+                  onChangeDuration(Math.max(Number(e.target.value), 1))
+                }
+                className="w-full rounded-xl border border-slate-300 px-4 py-2"
               />
             </div>
           </div>
@@ -162,10 +215,11 @@ export default function TaskModal({
             <label className="mb-1 block text-sm font-bold text-slate-600">
               実働日設定
             </label>
+
             <select
               value={workdayMode}
               onChange={(e) => onChangeWorkdayMode(e.target.value as WorkdayMode)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2"
+              className="w-full rounded-xl border border-slate-300 px-4 py-2"
             >
               <option value="all">すべての日</option>
               <option value="weekdays">平日のみ</option>
@@ -174,22 +228,34 @@ export default function TaskModal({
             </select>
           </div>
 
+          <div>
+            <div className="mb-1 flex items-center justify-between">
+              <label className="block text-sm font-bold text-slate-600">
+                進捗率
+              </label>
+              <span className="text-sm font-bold text-slate-700">
+                {progress}%
+              </span>
+            </div>
+
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={progress}
+              onChange={(e) => onChangeProgress(Number(e.target.value))}
+              className="w-full"
+            />
+          </div>
+
           {workdayMode === "custom" && (
             <div>
               <label className="mb-2 block text-sm font-bold text-slate-600">
-                作業曜日
+                作業する曜日
               </label>
 
               <div className="flex flex-wrap gap-2">
-                {[
-                  { label: "日", value: 0 },
-                  { label: "月", value: 1 },
-                  { label: "火", value: 2 },
-                  { label: "水", value: 3 },
-                  { label: "木", value: 4 },
-                  { label: "金", value: 5 },
-                  { label: "土", value: 6 },
-                ].map((day) => {
+                {WEEKDAYS.map((day) => {
                   const active = customWorkdays.includes(day.value);
 
                   return (
@@ -197,9 +263,9 @@ export default function TaskModal({
                       key={day.value}
                       type="button"
                       onClick={() => onToggleCustomWorkday(day.value)}
-                      className={`rounded-lg border px-3 py-2 text-sm font-bold transition ${active
-                          ? "border-slate-900 bg-slate-900 text-white"
-                          : "border-slate-300 bg-white text-slate-600 hover:bg-slate-100"
+                      className={`rounded-xl border px-4 py-2 text-sm font-bold ${active
+                        ? "border-slate-900 bg-slate-900 text-white"
+                        : "border-slate-300 bg-white text-slate-600 hover:bg-slate-100"
                         }`}
                     >
                       {day.label}
@@ -209,48 +275,36 @@ export default function TaskModal({
               </div>
             </div>
           )}
-
-          <div>
-            <label className="mb-1 block text-sm font-bold text-slate-600">
-              進捗率 ({progress}%)
-            </label>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              step={1}
-              value={progress}
-              onChange={(e) => onChangeProgress(Number(e.target.value))}
-              className="w-full"
-            />
-          </div>
         </div>
 
-        <div className="mt-6 flex items-center justify-between gap-2">
-          {isEdit && onDelete ? (
-            <button
-              onClick={onDelete}
-              className="rounded-xl border border-red-300 px-4 py-2 text-red-600 hover:bg-red-50"
-            >
-              削除
-            </button>
-          ) : (
-            <div />
-          )}
+        <div className="mt-6 flex flex-wrap justify-between gap-2">
+          <div>
+            {mode === "edit" && onDelete && (
+              <button
+                type="button"
+                onClick={onDelete}
+                className="rounded-xl border border-red-300 bg-white px-4 py-2 text-red-600 hover:bg-red-50"
+              >
+                削除
+              </button>
+            )}
+          </div>
 
           <div className="flex gap-2">
             <button
+              type="button"
               onClick={onClose}
-              className="rounded-xl border border-slate-300 px-4 py-2 text-slate-700 hover:bg-slate-100"
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 hover:bg-slate-100"
             >
               キャンセル
             </button>
 
             <button
+              type="button"
               onClick={onSubmit}
               className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-700"
             >
-              {isEdit ? "保存" : "追加"}
+              {submitText}
             </button>
           </div>
         </div>

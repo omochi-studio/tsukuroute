@@ -4,7 +4,8 @@ export type Task = {
   id: number;
   name: string;
   category: string;
-  assignee: string;
+  assignee?: string;
+  assignees: string[];
   startDate: string;
   duration: number;
   progress: number;

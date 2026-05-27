@@ -61,7 +61,7 @@ export default function TaskList({ tasks, days, onEditTask }: Props) {
                 </div>
 
                 <div className="mt-1 text-xs text-slate-500">
-                  担当：{task.assignee || "未設定"}
+                  担当：{task.assignees.join(" / ") || "未設定"}
                 </div>
 
                 <div className="mt-2">

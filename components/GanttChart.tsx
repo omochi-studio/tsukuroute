@@ -1,4 +1,5 @@
 import type { DayInfo, Task } from "@/types/gantt";
+import { useState } from "react";
 import {
   formatDateText,
   getDelayDays,
@@ -13,7 +14,13 @@ type Props = {
   dayWidth: number;
   rowHeight: number;
   onEditTask: (task: Task) => void;
+  onMoveTask: (taskId: number, diffDays: number) => void;
+  onResizeTask: (taskId: number, diffDays: number) => void;
 };
+
+function getAssigneeText(task: Task) {
+  return task.assignees?.join(" / ") || task.assignee || "未設定";
+}
 
 export default function GanttChart({
   projectName,
@@ -22,14 +29,65 @@ export default function GanttChart({
   dayWidth,
   rowHeight,
   onEditTask,
+  onMoveTask,
+  onResizeTask,
 }: Props) {
   const todayText = formatDateText(new Date());
   const todayIndex = days.findIndex((day) => day.dateText === todayText);
 
+  const [resizingTaskId, setResizingTaskId] = useState<number | null>(null);
+  const [draggingTaskId, setDraggingTaskId] = useState<number | null>(null);
+  const [dragStartX, setDragStartX] = useState(0);
+  const [hasDragged, setHasDragged] = useState(false);
+
   const barHeight = Math.max(rowHeight - 10, 28);
 
+  function finishDrag() {
+    setDraggingTaskId(null);
+    setResizingTaskId(null);
+    setDragStartX(0);
+
+    window.setTimeout(() => {
+      setHasDragged(false);
+    }, 0);
+  }
+
   return (
-    <section className="max-h-[calc(100vh-220px)] overflow-auto rounded-2xl bg-white p-4 shadow-sm">
+    <section
+      className="max-h-[calc(100vh-220px)] overflow-auto rounded-2xl bg-white p-4 shadow-sm"
+      onMouseMove={(e) => {
+
+        // 移動処理
+        if (draggingTaskId !== null) {
+          const diffX = e.clientX - dragStartX;
+          const diffDays = Math.round(diffX / dayWidth);
+
+          if (diffDays !== 0) {
+            setHasDragged(true);
+
+            onMoveTask(draggingTaskId, diffDays);
+
+            setDragStartX(e.clientX);
+          }
+        }
+
+        // リサイズ処理
+        if (resizingTaskId !== null) {
+          const diffX = e.clientX - dragStartX;
+          const diffDays = Math.round(diffX / dayWidth);
+
+          if (diffDays !== 0) {
+            setHasDragged(true);
+
+            onResizeTask(resizingTaskId, diffDays);
+
+            setDragStartX(e.clientX);
+          }
+        }
+      }}
+      onMouseUp={finishDrag}
+      onMouseLeave={finishDrag}
+    >
       <h2 className="mb-4 text-lg font-bold">
         ガントチャート：{projectName}
       </h2>
@@ -62,15 +120,14 @@ export default function GanttChart({
             return (
               <div
                 key={day.dateText}
-                className={`border-r border-slate-200 py-2 ${
-                  isToday
-                    ? "bg-red-50/40"
-                    : day.isSaturday
+                className={`border-r border-slate-200 py-2 ${isToday
+                  ? "bg-red-50/40"
+                  : day.isSaturday
                     ? "bg-blue-50"
                     : day.isSunday
-                    ? "bg-red-50"
-                    : "bg-white"
-                }`}
+                      ? "bg-red-50"
+                      : "bg-white"
+                  }`}
               >
                 <div className="font-bold">{day.label}</div>
                 <div className="text-xs">{day.dayName}</div>
@@ -92,8 +149,8 @@ export default function GanttChart({
             tasks.map((task) => {
               const segments = getTaskScheduleSegments(days, task);
               const delayDays = getDelayDays(days, task);
-
               const lastSegment = segments[segments.length - 1];
+              const assigneeText = getAssigneeText(task);
 
               return (
                 <div
@@ -115,15 +172,14 @@ export default function GanttChart({
                     return (
                       <div
                         key={day.dateText}
-                        className={`h-full border-r border-slate-200 ${
-                          !working
-                            ? "bg-slate-100"
-                            : day.isSaturday
+                        className={`h-full border-r border-slate-200 ${!working
+                          ? "bg-slate-100"
+                          : day.isSaturday
                             ? "bg-blue-50"
                             : day.isSunday
-                            ? "bg-red-50"
-                            : "bg-white"
-                        }`}
+                              ? "bg-red-50"
+                              : "bg-white"
+                          }`}
                       />
                     );
                   })}
@@ -131,8 +187,18 @@ export default function GanttChart({
                   {segments.map((segment, index) => (
                     <button
                       key={`${task.id}-${segment.startIndex}`}
-                      onClick={() => onEditTask(task)}
-                      className={`absolute z-20 flex items-center overflow-hidden rounded-md ${task.color} text-left text-sm font-bold text-white shadow-sm hover:brightness-95`}
+                      type="button"
+                      onClick={() => {
+                        if (hasDragged) return;
+                        onEditTask(task);
+                      }}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setDraggingTaskId(task.id);
+                        setDragStartX(e.clientX);
+                        setHasDragged(false);
+                      }}
+                      className={`absolute z-20 flex cursor-grab items-center overflow-hidden rounded-md ${task.color} text-left text-sm font-bold text-white shadow-sm hover:brightness-95 active:cursor-grabbing`}
                       style={{
                         left: `${segment.startIndex * dayWidth}px`,
                         width: `${segment.length * dayWidth}px`,
@@ -147,6 +213,17 @@ export default function GanttChart({
                       />
 
                       <div className="relative z-10 flex w-full items-center justify-between gap-2 px-3">
+                        <div
+                          onMouseDown={(e) => {
+                            e.stopPropagation();
+
+                            setResizingTaskId(task.id);
+                            setDragStartX(e.clientX);
+                            setHasDragged(false);
+                          }}
+                          className="absolute right-0 top-0 h-full w-3 cursor-ew-resize bg-black/20 hover:bg-black/40"
+                        />
+
                         <div className="min-w-0">
                           {index === 0 && (
                             <>
@@ -154,12 +231,14 @@ export default function GanttChart({
 
                               {rowHeight >= 56 && (
                                 <div className="truncate text-[10px] font-normal text-white/80">
-                                  {task.assignee || "未設定"}
+                                  {assigneeText}
+
                                 </div>
                               )}
                             </>
                           )}
                         </div>
+
 
                         {index === 0 && (
                           <span className="shrink-0 text-xs">
@@ -180,10 +259,8 @@ export default function GanttChart({
                           className="pointer-events-none absolute z-10 border-t-2 border-dashed border-slate-400"
                           style={{
                             left: `${(segment.endIndex + 1) * dayWidth}px`,
-                            width: `${
-                              (next.startIndex - segment.endIndex - 1) *
-                              dayWidth
-                            }px`,
+                            width: `${(next.startIndex - segment.endIndex - 1) * dayWidth
+                              }px`,
                           }}
                         />
                       );
@@ -208,16 +285,6 @@ export default function GanttChart({
             })
           )}
         </div>
-
-        {todayIndex !== -1 && (
-          <div
-            className="pointer-events-none absolute bottom-0 top-0 z-40 border-l-2 border-r-2 border-red-400"
-            style={{
-              left: `${todayIndex * dayWidth}px`,
-              width: `${dayWidth}px`,
-            }}
-          />
-        )}
       </div>
     </section>
   );

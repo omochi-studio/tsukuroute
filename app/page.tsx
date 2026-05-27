@@ -108,7 +108,7 @@ export default function Home() {
         customHolidays: project.customHolidays ?? [],
         tasks: project.tasks.map((task) => ({
           ...task,
-          assignee: task.assignee ?? "",
+          assignees: task.assignees ?? (task.assignee ? [task.assignee] : []),
           progress: task.progress ?? 0,
           updatedBy: task.updatedBy ?? "",
           updatedAt: task.updatedAt ?? "",
@@ -147,7 +147,9 @@ export default function Home() {
 
   const [newTaskName, setNewTaskName] = useState("");
   const [newTaskCategory, setNewTaskCategory] = useState("未分類");
-  const [newTaskAssignee, setNewTaskAssignee] = useState("");
+  const [newTaskAssignee1, setNewTaskAssignee1] = useState("");
+  const [newTaskAssignee2, setNewTaskAssignee2] = useState("");
+  const [newTaskAssignee3, setNewTaskAssignee3] = useState("");
   const [newTaskStartDate, setNewTaskStartDate] = useState("");
   const [newTaskDuration, setNewTaskDuration] = useState(3);
   const [newTaskProgress, setNewTaskProgress] = useState(0);
@@ -164,7 +166,9 @@ export default function Home() {
 
   const [editTaskName, setEditTaskName] = useState("");
   const [editTaskCategory, setEditTaskCategory] = useState("未分類");
-  const [editTaskAssignee, setEditTaskAssignee] = useState("");
+  const [editTaskAssignee1, setEditTaskAssignee1] = useState("");
+  const [editTaskAssignee2, setEditTaskAssignee2] = useState("");
+  const [editTaskAssignee3, setEditTaskAssignee3] = useState("");
   const [editTaskStartDate, setEditTaskStartDate] = useState("");
   const [editTaskDuration, setEditTaskDuration] = useState(1);
   const [editTaskProgress, setEditTaskProgress] = useState(0);
@@ -212,7 +216,9 @@ export default function Home() {
               .toLowerCase()
               .includes(keyword) ||
             (
-              task.assignee ?? ""
+              task.assignees?.join(" / ") ??
+              task.assignee ??
+              ""
             )
               .toLowerCase()
               .includes(keyword) ||
@@ -244,7 +250,15 @@ export default function Home() {
         }
 
         if (sortMode === "assignee") {
-          return (a.assignee ?? "").localeCompare(b.assignee ?? "");
+          return (
+            a.assignees?.join(" / ") ??
+            a.assignee ??
+            ""
+          ).localeCompare(
+            b.assignees?.join(" / ") ??
+            b.assignee ??
+            ""
+          );
         }
 
         if (sortMode === "progress") {
@@ -286,6 +300,54 @@ export default function Home() {
     updateSelectedProject({
       ...selectedProject,
       workdayMode: mode,
+    });
+  }
+
+  function moveTask(taskId: number, diffDays: number) {
+    if (!selectedProject) return;
+
+    const updatedTasks = selectedProject.tasks.map((task) => {
+      if (task.id !== taskId) return task;
+
+      const currentDate = new Date(task.startDate);
+
+      currentDate.setDate(currentDate.getDate() + diffDays);
+
+      const newDate = currentDate.toISOString().slice(0, 10);
+
+      return {
+        ...task,
+        startDate: newDate,
+        updatedBy: currentUserName || "未設定",
+        updatedAt: getCurrentDateTimeText(),
+      };
+    });
+
+    updateSelectedProject({
+      ...selectedProject,
+      tasks: updatedTasks,
+    });
+  }
+
+  function resizeTask(taskId: number, diffDays: number) {
+    if (!selectedProject) return;
+
+    const updatedTasks = selectedProject.tasks.map((task) => {
+      if (task.id !== taskId) return task;
+
+      const newDuration = Math.max(1, task.duration + diffDays);
+
+      return {
+        ...task,
+        duration: newDuration,
+        updatedBy: currentUserName || "未設定",
+        updatedAt: getCurrentDateTimeText(),
+      };
+    });
+
+    updateSelectedProject({
+      ...selectedProject,
+      tasks: updatedTasks,
     });
   }
 
@@ -435,7 +497,9 @@ export default function Home() {
 
     setNewTaskName("");
     setNewTaskCategory("未分類");
-    setNewTaskAssignee("");
+    setNewTaskAssignee1("");
+    setNewTaskAssignee2("");
+    setNewTaskAssignee3("");
     setNewTaskStartDate(selectedProject.startDate);
     setNewTaskDuration(3);
     setNewTaskProgress(0);
@@ -465,7 +529,7 @@ export default function Home() {
       id: Date.now(),
       name: newTaskName,
       category: newTaskCategory,
-      assignee: newTaskAssignee,
+      assignees: [newTaskAssignee1, newTaskAssignee2, newTaskAssignee3,].filter((name) => name.trim() !== ""),
       startDate: newTaskStartDate,
       duration: newTaskDuration,
       progress: newTaskProgress,
@@ -492,10 +556,14 @@ export default function Home() {
   function openEditTaskModal(task: Task) {
     if (!selectedProject) return;
 
+    const assignees = task.assignees ?? (task.assignee ? [task.assignee] : []);
+
     setEditingTaskId(task.id);
     setEditTaskName(task.name);
     setEditTaskCategory(task.category);
-    setEditTaskAssignee(task.assignee ?? "");
+    setEditTaskAssignee1(task.assignees[0] || "");
+    setEditTaskAssignee2(task.assignees[1] || "");
+    setEditTaskAssignee3(task.assignees[2] || "");
     setEditTaskStartDate(task.startDate);
     setEditTaskDuration(task.duration);
     setEditTaskProgress(task.progress ?? 0);
@@ -519,7 +587,7 @@ export default function Home() {
         ...task,
         name: editTaskName,
         category: editTaskCategory,
-        assignee: editTaskAssignee,
+        assignees: [editTaskAssignee1, editTaskAssignee2, editTaskAssignee3,].filter((name) => name.trim() !== ""),
         startDate: editTaskStartDate,
         duration: editTaskDuration,
         progress: editTaskProgress,
@@ -554,8 +622,7 @@ export default function Home() {
   }
 
   /* =========================
-     JSON出力・読み込み
-     ========================= */
+    ========================= */
   function exportProjectsJson() {
     const exportData = {
       appName: "つくる〜と",
@@ -595,16 +662,30 @@ export default function Home() {
 
         const importedProjects = importedData.projects as Project[];
 
-        setProjects(importedProjects);
+        const baseProjectId = Date.now();
 
-        if (importedProjects.length > 0) {
-          setSelectedProjectId(importedProjects[0].id);
+        const importedProjectsWithNewIds = importedProjects.map(
+          (project, projectIndex) => ({
+            ...project,
+            id: baseProjectId + projectIndex,
+            tasks: project.tasks.map((task, taskIndex) => ({
+              ...task,
+              id: baseProjectId + projectIndex * 10000 + taskIndex + 1,
+            })),
+          })
+        );
+
+        setProjects((prev) => [
+          ...prev,
+          ...importedProjectsWithNewIds,
+        ]);
+
+        if (importedProjectsWithNewIds.length > 0) {
+          setSelectedProjectId(importedProjectsWithNewIds[0].id);
           setSelectedCategory("すべて");
-        } else {
-          setSelectedProjectId(null);
         }
 
-        alert("プロジェクトを読み込みました！");
+        alert("プロジェクトを追加読み込みしました！");
       } catch {
         alert("JSON読み込みに失敗しました");
       }
@@ -718,7 +799,7 @@ export default function Home() {
       listSheet.addRow({
         projectName: selectedProject.name,
         taskName: task.name,
-        assignee: task.assignee || "未設定",
+        assignee: task.assignees?.join(" / ") || task.assignee || "未設定",
         category: task.category,
         startDate: task.startDate,
         endDate: endDay?.dateText ?? "",
@@ -918,7 +999,7 @@ export default function Home() {
 
         const leftValues = [
           task.name,
-          task.assignee || "未設定",
+          task.assignees?.join(" / ") || task.assignee || "未設定",
           `${task.progress}%`,
           task.startDate,
           endDay?.dateText ?? "",
@@ -1516,6 +1597,8 @@ export default function Home() {
             dayWidth={dayWidth}
             rowHeight={rowHeight}
             onEditTask={openEditTaskModal}
+            onMoveTask={moveTask}
+            onResizeTask={resizeTask}
           />
         </section>
       </div>
@@ -1526,7 +1609,9 @@ export default function Home() {
           projectName={selectedProject.name}
           taskName={newTaskName}
           category={newTaskCategory}
-          assignee={newTaskAssignee}
+          assignee1={newTaskAssignee1}
+          assignee2={newTaskAssignee2}
+          assignee3={newTaskAssignee3}
           startDate={newTaskStartDate}
           duration={newTaskDuration}
           progress={newTaskProgress}
@@ -1537,7 +1622,9 @@ export default function Home() {
           maxDuration={days.length}
           onChangeTaskName={setNewTaskName}
           onChangeCategory={setNewTaskCategory}
-          onChangeAssignee={setNewTaskAssignee}
+          onChangeAssignee1={setNewTaskAssignee1}
+          onChangeAssignee2={setNewTaskAssignee2}
+          onChangeAssignee3={setNewTaskAssignee3}
           onChangeStartDate={setNewTaskStartDate}
           onChangeDuration={setNewTaskDuration}
           onChangeProgress={setNewTaskProgress}
@@ -1554,7 +1641,9 @@ export default function Home() {
           projectName={selectedProject.name}
           taskName={editTaskName}
           category={editTaskCategory}
-          assignee={editTaskAssignee}
+          assignee1={editTaskAssignee1}
+          assignee2={editTaskAssignee2}
+          assignee3={editTaskAssignee3}
           startDate={editTaskStartDate}
           duration={editTaskDuration}
           progress={editTaskProgress}
@@ -1565,7 +1654,9 @@ export default function Home() {
           maxDuration={days.length}
           onChangeTaskName={setEditTaskName}
           onChangeCategory={setEditTaskCategory}
-          onChangeAssignee={setEditTaskAssignee}
+          onChangeAssignee1={setEditTaskAssignee1}
+          onChangeAssignee2={setEditTaskAssignee2}
+          onChangeAssignee3={setEditTaskAssignee3}
           onChangeStartDate={setEditTaskStartDate}
           onChangeDuration={setEditTaskDuration}
           onChangeProgress={setEditTaskProgress}
@@ -1654,7 +1745,7 @@ export default function Home() {
         </div>
       )}
       <HelpMenu feedbackUrl=
-      "https://docs.google.com/forms/d/e/1FAIpQLSdfd8H-WeQlqviXlfpa91sZ60uU2RO0g53Rhk_tNgVWHIREsg/viewform?usp=publish-editor" />
+        "https://docs.google.com/forms/d/e/1FAIpQLSdfd8H-WeQlqviXlfpa91sZ60uU2RO0g53Rhk_tNgVWHIREsg/viewform?usp=publish-editor" />
       <VersionLabel version={APP_VERSION} />
     </main>
   );
