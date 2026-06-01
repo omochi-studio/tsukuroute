@@ -73,3 +73,35 @@ export async function loadProjectJsonFromOneDrive(
 
   return await fileResponse.json();
 }
+
+export async function getSiteInfo(
+  msalInstance: IPublicClientApplication
+) {
+  const accessToken = await getToken(msalInstance);
+  const client = getGraphClient(accessToken);
+
+  return await client
+    .api("/sites/jc21.sharepoint.com:/sites/JC_2025_GC1")
+    .get();
+}
+
+export async function getSiteDrive(
+  msalInstance: IPublicClientApplication
+) {
+  const accessToken = await getToken(msalInstance);
+  const client = getGraphClient(accessToken);
+
+  return await client
+    .api("/sites/jc21.sharepoint.com:/sites/JC_2025_GC1:/drives")
+    .get();
+}
+export async function getDefaultSiteDrive(
+  msalInstance: IPublicClientApplication
+) {
+  const accessToken = await getToken(msalInstance);
+  const client = getGraphClient(accessToken);
+
+  return await client
+    .api("/sites/jc21.sharepoint.com:/sites/JC_2025_GC1:/drive")
+    .get();
+}

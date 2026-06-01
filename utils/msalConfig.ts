@@ -13,5 +13,8 @@ export const msalConfig: Configuration = {
 };
 
 export const loginRequest = {
-  scopes: ["User.Read", "Files.ReadWrite"],
+  scopes: [
+    "User.Read",
+    "Files.ReadWrite",
+  ],
 };

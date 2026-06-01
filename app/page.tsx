@@ -25,16 +25,44 @@ import {
 
 import {
   getCurrentUserName,
+  getCurrentUserEmail,
 } from "@/utils/currentUser";
+
+import {
+  INVITE_CODE,
+  authorize,
+  isAuthorized,
+  isAllowedDomain,
+} from "@/utils/auth";
+
+import {
+  getSiteInfo,
+  getSiteDrive,
+  getDefaultSiteDrive,
+} from "@/utils/graph";
 
 /* =========================
    保存用キー・バージョン
    ========================= */
 const STORAGE_KEY = "tsukuroute-projects";
 const USER_NAME_KEY = "tsukuroute-user-name";
-const APP_VERSION = "つくる〜と 1.1.0-beta.0";
+const APP_VERSION = "つくる〜と v1.2.0";
+
+const isTgsMode =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).get("mode") === "tgs";
 
 export default function Home() {
+
+  const [isClientReady, setIsClientReady] = useState(false);
+  const [isTgsMode, setIsTgsMode] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+
+    setIsTgsMode(params.get("mode") === "tgs");
+    setIsClientReady(true);
+  }, []);
 
   const { instance } = useMsal();
 
@@ -59,6 +87,9 @@ export default function Home() {
   const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
   const [renameProjectName, setRenameProjectName] = useState("");
   const [searchText, setSearchText] = useState("");
+  const [currentUserEmail, setCurrentUserEmail] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
+  const [authorized, setAuthorized] = useState(false);
 
   /* =========================
      ユーザー名
@@ -92,6 +123,21 @@ export default function Home() {
     if (savedName) {
       setCurrentUserName(savedName);
     }
+  }, []);
+
+  useEffect(() => {
+    function refreshUser() {
+      setCurrentUserEmail(getCurrentUserEmail());
+      setAuthorized(isAuthorized());
+    }
+
+    refreshUser();
+
+    window.addEventListener("tsukuroute-user-updated", refreshUser);
+
+    return () => {
+      window.removeEventListener("tsukuroute-user-updated", refreshUser);
+    };
   }, []);
 
   /* =========================
@@ -1214,6 +1260,65 @@ export default function Home() {
   /* =========================
      プロジェクトなし画面
      ========================= */
+
+  if (!isClientReady) {
+    return null;
+  }
+
+  if (
+    isTgsMode &&
+    (!currentUserEmail || !isAllowedDomain(currentUserEmail) || !authorized)
+  ) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-100 p-6 text-slate-900">
+        <div className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-sm">
+          <h1 className="mb-2 text-3xl font-bold">つくる〜と</h1>
+          <p className="mb-6 text-sm text-slate-500">
+            TGSメンバー専用ページです。
+          </p>
+
+          <div className="mb-6 flex justify-center">
+            <LoginButton />
+          </div>
+
+          {currentUserEmail && !isAllowedDomain(currentUserEmail) && (
+            <p className="rounded-xl bg-red-50 p-4 text-sm text-red-600">
+              このアカウントは利用できません。
+            </p>
+          )}
+
+          {currentUserEmail && isAllowedDomain(currentUserEmail) && !authorized && (
+            <div className="space-y-3">
+              <input
+                type="password"
+                value={inviteCode}
+                onChange={(e) => setInviteCode(e.target.value)}
+                placeholder="招待コード"
+                className="w-full rounded-xl border border-slate-300 px-4 py-3"
+              />
+
+              <button
+                onClick={() => {
+                  if (inviteCode === INVITE_CODE) {
+                    authorize();
+                    setAuthorized(true);
+                  } else {
+                    alert("招待コードが違います");
+                  }
+                }}
+                className="w-full rounded-xl bg-slate-900 px-4 py-3 text-white hover:bg-slate-700"
+              >
+                利用開始
+              </button>
+            </div>
+          )}
+        </div>
+
+        <VersionLabel version={APP_VERSION} />
+      </main>
+    );
+  }
+
   if (!selectedProject) {
     return (
 
@@ -1230,6 +1335,7 @@ export default function Home() {
           >
             ＋ 新規プロジェクト作成
           </button>
+
         </div>
 
         {isProjectModalOpen && (
@@ -1300,7 +1406,6 @@ export default function Home() {
               >
                 ＋ 新規プロジェクト
               </button>
-
 
               <div className="relative">
                 <button
