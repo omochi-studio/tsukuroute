@@ -1,0 +1,51 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.17",
+  "version": "1.0.0",
+
+  "id": "com.omochi.tsukuroute",
+
+  "packageName": "com.omochi.tsukuroute",
+
+  "developer": {
+    "name": "Omochi Studio",
+    "websiteUrl": "tsukuroute-pmrv.vercel.app",
+    "privacyUrl": "tsukuroute-pmrv.vercel.app",
+    "termsOfUseUrl": "tsukuroute-pmrv.vercel.app"
+  },
+
+  "name": {
+    "short": "つくる〜と",
+    "full": "つくる〜と ガント管理"
+  },
+
+  "description": {
+    "short": "ゲーム制作向けガント管理ツール",
+    "full": "ゲーム制作向けガント管理ツール つくる〜と"
+  },
+
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+
+  "accentColor": "#0f172a",
+
+  "staticTabs": [
+    {
+      "entityId": "tsukuroute",
+      "name": "つくる〜と",
+      "contentUrl": "tsukuroute-pmrv.vercel.app",
+        "websiteUrl": "tsukuroute-pmrv.vercel.app",
+        "scopes": ["personal"]
+    }
+  ],
+
+  "permissions": [
+    "identity"
+  ],
+
+  "validDomains": [
+    "tsukuroute-pmrv.vercel.app"
+  ]
+}

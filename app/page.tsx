@@ -15,6 +15,17 @@ import {
   isWorkingDay,
 } from "@/utils/date";
 import HelpMenu from "@/components/HelpMenu";
+import LoginButton from "@/components/LoginButton";
+
+import { useMsal } from "@azure/msal-react";
+import {
+  saveProjectJsonToOneDrive,
+  loadProjectJsonFromOneDrive,
+} from "@/utils/graph";
+
+import {
+  getCurrentUserName,
+} from "@/utils/currentUser";
 
 /* =========================
    保存用キー・バージョン
@@ -24,6 +35,9 @@ const USER_NAME_KEY = "tsukuroute-user-name";
 const APP_VERSION = "つくる〜と 1.0.0-beta.7";
 
 export default function Home() {
+
+  const { instance } = useMsal();
+
   /* =========================
      プロジェクトデータ
      初期サンプルなし
@@ -286,6 +300,10 @@ export default function Home() {
     return `${month}/${date} ${hour}:${minute}`;
   }
 
+  function getUpdaterName() {
+    return getCurrentUserName() || currentUserName || "未ログイン";
+  }
+
   function updateSelectedProject(updatedProject: Project) {
     setProjects(
       projects.map((project) =>
@@ -318,7 +336,7 @@ export default function Home() {
       return {
         ...task,
         startDate: newDate,
-        updatedBy: currentUserName || "未設定",
+        updatedBy: getUpdaterName(),
         updatedAt: getCurrentDateTimeText(),
       };
     });
@@ -340,7 +358,7 @@ export default function Home() {
       return {
         ...task,
         duration: newDuration,
-        updatedBy: currentUserName || "未設定",
+        updatedBy: getUpdaterName(),
         updatedAt: getCurrentDateTimeText(),
       };
     });
@@ -350,6 +368,7 @@ export default function Home() {
       tasks: updatedTasks,
     });
   }
+
 
   /* =========================
      カスタム曜日切り替え
@@ -534,7 +553,7 @@ export default function Home() {
       duration: newTaskDuration,
       progress: newTaskProgress,
       color: colors[selectedProject.tasks.length % colors.length],
-      updatedBy: currentUserName || "未設定",
+      updatedBy: getUpdaterName(),
       updatedAt: getCurrentDateTimeText(),
       workdayMode: newTaskWorkdayMode,
       customWorkdays: newTaskCustomWorkdays,
@@ -591,7 +610,7 @@ export default function Home() {
         startDate: editTaskStartDate,
         duration: editTaskDuration,
         progress: editTaskProgress,
-        updatedBy: currentUserName || "未設定",
+        updatedBy: getUpdaterName(),
         updatedAt: getCurrentDateTimeText(),
         workdayMode: editTaskWorkdayMode,
         customWorkdays: editTaskCustomWorkdays,
@@ -641,6 +660,56 @@ export default function Home() {
     a.click();
 
     URL.revokeObjectURL(url);
+  }
+
+  async function saveCloudProjects() {
+    try {
+      const data = {
+        appName: "つくる〜と",
+        version: APP_VERSION,
+        savedAt: getCurrentDateTimeText(),
+        savedBy: getUpdaterName(),
+        projects,
+      };
+
+      await saveProjectJsonToOneDrive(instance, data);
+
+      alert("クラウドに保存しました！");
+    } catch (error) {
+      console.error("Cloud Save Error:", error);
+
+      alert(
+        "クラウド保存失敗\n\n" +
+        JSON.stringify(error, null, 2)
+      );
+    }
+  }
+
+  async function loadCloudProjects() {
+    try {
+      const data = await loadProjectJsonFromOneDrive(instance);
+
+      if (!data.projects) {
+        alert("クラウドデータが不正です");
+        return;
+      }
+
+      setProjects(data.projects);
+
+      if (data.projects.length > 0) {
+        setSelectedProjectId(data.projects[0].id);
+        setSelectedCategory("すべて");
+      }
+
+      alert("クラウドから読み込みました！");
+    } catch (error) {
+      console.error("Cloud Load Error:", error);
+
+      alert(
+        "クラウド読込失敗\n\n" +
+        JSON.stringify(error, null, 2)
+      );
+    }
   }
 
   function importProjectsJson(event: ChangeEvent<HTMLInputElement>) {
@@ -807,7 +876,7 @@ export default function Home() {
         progress: `${task.progress}%`,
         delay: delayDays > 0 ? `${delayDays}日` : "",
         workdayMode: task.workdayMode,
-        updatedBy: task.updatedBy || "未設定",
+        updatedBy: getUpdaterName(),
         updatedAt: task.updatedAt || "",
       });
     });
@@ -1147,6 +1216,7 @@ export default function Home() {
      ========================= */
   if (!selectedProject) {
     return (
+
       <main className="flex min-h-screen items-center justify-center bg-slate-100 p-6 text-slate-900">
         <div className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-sm">
           <h1 className="mb-2 text-3xl font-bold">つくる〜と</h1>
@@ -1211,19 +1281,26 @@ export default function Home() {
         <header className="mb-4 rounded-2xl bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-bold">つくる〜と</h1>
+              <div className="flex items-center gap-3">
+                <h1 className="text-3xl font-bold">つくる〜と</h1>
+
+                <LoginButton />
+              </div>
+
               <p className="text-sm text-slate-500">
                 ゲーム制作向け・かんたんガント管理ツール
               </p>
             </div>
 
             <div className="flex flex-wrap gap-2">
+
               <button
                 onClick={openProjectModal}
                 className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-slate-700 hover:bg-slate-100"
               >
                 ＋ 新規プロジェクト
               </button>
+
 
               <div className="relative">
                 <button
@@ -1245,6 +1322,7 @@ export default function Home() {
                       JSON出力
                     </button>
 
+
                     <label className="block cursor-pointer border-b border-slate-100 px-4 py-3 text-sm hover:bg-slate-100">
                       JSON読込
 
@@ -1258,6 +1336,26 @@ export default function Home() {
                         className="hidden"
                       />
                     </label>
+
+                    <button
+                      onClick={() => {
+                        saveCloudProjects();
+                        setIsExportMenuOpen(false);
+                      }}
+                      className="block w-full border-b border-slate-100 px-4 py-3 text-left text-sm hover:bg-slate-100"
+                    >
+                      クラウド保存
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        loadCloudProjects();
+                        setIsExportMenuOpen(false);
+                      }}
+                      className="block w-full border-b border-slate-100 px-4 py-3 text-left text-sm hover:bg-slate-100"
+                    >
+                      クラウド読込
+                    </button>
 
                     <button
                       onClick={() => {
