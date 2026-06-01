@@ -32,7 +32,7 @@ import {
    ========================= */
 const STORAGE_KEY = "tsukuroute-projects";
 const USER_NAME_KEY = "tsukuroute-user-name";
-const APP_VERSION = "つくる〜と 1.0.0-beta.7";
+const APP_VERSION = "つくる〜と 1.1.0-beta.0";
 
 export default function Home() {
 

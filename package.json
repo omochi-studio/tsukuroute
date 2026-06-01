@@ -1,6 +1,6 @@
 {
   "name": "tsukuroute",
-  "version": "1.1.0",
+  "version": "1.1.0-beta.0",
   "description": "ゲーム制作向けガント管理ツール",
   "author": "Omochi Studio",
   "private": true,
