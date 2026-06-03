@@ -17,10 +17,12 @@ import {
 import HelpMenu from "@/components/HelpMenu";
 import LoginButton from "@/components/LoginButton";
 
+import { useRef } from "react";
+
 import { useMsal } from "@azure/msal-react";
 import {
-  saveProjectJsonToOneDrive,
-  loadProjectJsonFromOneDrive,
+  loadProjectJsonFromSharedFolder,
+  saveProjectJsonToSharedFolder,
 } from "@/utils/graph";
 
 import {
@@ -35,24 +37,24 @@ import {
   isAllowedDomain,
 } from "@/utils/auth";
 
-import {
-  getSiteInfo,
-  getSiteDrive,
-  getDefaultSiteDrive,
-} from "@/utils/graph";
-
 /* =========================
    保存用キー・バージョン
    ========================= */
 const STORAGE_KEY = "tsukuroute-projects";
 const USER_NAME_KEY = "tsukuroute-user-name";
-const APP_VERSION = "つくる〜と v1.2.0";
+const APP_VERSION = "つくる〜と v1.2.1";
 
-const isTgsMode =
+/*const isTgsMode =
   typeof window !== "undefined" &&
-  new URLSearchParams(window.location.search).get("mode") === "tgs";
+  new URLSearchParams(window.location.search).get("mode") === "tgs";*/
 
 export default function Home() {
+
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [sharedFolderUrl, setSharedFolderUrl] = useState("");
 
   const [isClientReady, setIsClientReady] = useState(false);
   const [isTgsMode, setIsTgsMode] = useState(false);
@@ -64,7 +66,7 @@ export default function Home() {
     setIsClientReady(true);
   }, []);
 
-  const { instance } = useMsal();
+  const { instance, accounts } = useMsal();
 
   /* =========================
      プロジェクトデータ
@@ -127,18 +129,29 @@ export default function Home() {
 
   useEffect(() => {
     function refreshUser() {
-      setCurrentUserEmail(getCurrentUserEmail());
+      const email = getCurrentUserEmail();
+
+      setCurrentUserEmail(email);
       setAuthorized(isAuthorized());
+
+      setIsLoggedIn(accounts.length > 0);
     }
 
     refreshUser();
 
-    window.addEventListener("tsukuroute-user-updated", refreshUser);
+
+    window.addEventListener(
+      "tsukuroute-user-updated",
+      refreshUser
+    );
 
     return () => {
-      window.removeEventListener("tsukuroute-user-updated", refreshUser);
+      window.removeEventListener(
+        "tsukuroute-user-updated",
+        refreshUser
+      );
     };
-  }, []);
+  }, [accounts]);
 
   /* =========================
      ユーザー名保存
@@ -150,6 +163,15 @@ export default function Home() {
   /* =========================
      プロジェクト読み込み
      ========================= */
+
+  useEffect(() => {
+    const savedUrl = localStorage.getItem("tsukuroute-shared-folder-url");
+
+    if (savedUrl) {
+      setSharedFolderUrl(savedUrl);
+    }
+  }, []);
+
   useEffect(() => {
     const savedProjects = localStorage.getItem(STORAGE_KEY);
 
@@ -710,6 +732,11 @@ export default function Home() {
 
   async function saveCloudProjects() {
     try {
+      if (!sharedFolderUrl) {
+        alert("共有フォルダリンクを設定してください");
+        return;
+      }
+
       const data = {
         appName: "つくる〜と",
         version: APP_VERSION,
@@ -718,25 +745,33 @@ export default function Home() {
         projects,
       };
 
-      await saveProjectJsonToOneDrive(instance, data);
-
-      alert("クラウドに保存しました！");
-    } catch (error) {
-      console.error("Cloud Save Error:", error);
-
-      alert(
-        "クラウド保存失敗\n\n" +
-        JSON.stringify(error, null, 2)
+      await saveProjectJsonToSharedFolder(
+        instance,
+        sharedFolderUrl,
+        data
       );
+
+      alert("共有クラウドに保存しました！");
+    } catch (error) {
+      console.error("Shared Cloud Save Error:", error);
+      alert("共有クラウド保存に失敗しました");
     }
   }
 
   async function loadCloudProjects() {
     try {
-      const data = await loadProjectJsonFromOneDrive(instance);
+      if (!sharedFolderUrl) {
+        alert("共有フォルダリンクを設定してください");
+        return;
+      }
+
+      const data = await loadProjectJsonFromSharedFolder(
+        instance,
+        sharedFolderUrl
+      );
 
       if (!data.projects) {
-        alert("クラウドデータが不正です");
+        alert("共有クラウドデータが不正です");
         return;
       }
 
@@ -747,14 +782,10 @@ export default function Home() {
         setSelectedCategory("すべて");
       }
 
-      alert("クラウドから読み込みました！");
+      alert("共有クラウドから読み込みました！");
     } catch (error) {
-      console.error("Cloud Load Error:", error);
-
-      alert(
-        "クラウド読込失敗\n\n" +
-        JSON.stringify(error, null, 2)
-      );
+      console.error("Shared Cloud Load Error:", error);
+      alert("共有クラウド読込に失敗しました");
     }
   }
 
@@ -1277,17 +1308,19 @@ export default function Home() {
             TGSメンバー専用ページです。
           </p>
 
-          <div className="mb-6 flex justify-center">
-            <LoginButton />
-          </div>
-
           {currentUserEmail && !isAllowedDomain(currentUserEmail) && (
             <p className="rounded-xl bg-red-50 p-4 text-sm text-red-600">
               このアカウントは利用できません。
             </p>
           )}
 
-          {currentUserEmail && isAllowedDomain(currentUserEmail) && !authorized && (
+          {!isLoggedIn && (
+            <div className="mb-6 flex justify-center">
+              <LoginButton />
+            </div>
+          )}
+
+          {isLoggedIn && !authorized && (
             <div className="space-y-3">
               <input
                 type="password"
@@ -1299,14 +1332,14 @@ export default function Home() {
 
               <button
                 onClick={() => {
-                  if (inviteCode === INVITE_CODE) {
+                  if (inviteCode.trim() === INVITE_CODE) {
                     authorize();
                     setAuthorized(true);
                   } else {
                     alert("招待コードが違います");
                   }
                 }}
-                className="w-full rounded-xl bg-slate-900 px-4 py-3 text-white hover:bg-slate-700"
+                className="w-full rounded-xl bg-slate-900 px-4 py-3 text-white"
               >
                 利用開始
               </button>
@@ -1326,15 +1359,52 @@ export default function Home() {
         <div className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-sm">
           <h1 className="mb-2 text-3xl font-bold">つくる〜と</h1>
           <p className="mb-6 text-sm text-slate-500">
-            プロジェクトを作成してガント管理を始めましょう。
+            プロジェクトを作成するか、
+            読み込みを行ってください。
           </p>
 
-          <button
-            onClick={openProjectModal}
-            className="rounded-xl bg-slate-900 px-5 py-3 text-white hover:bg-slate-700"
-          >
-            ＋ 新規プロジェクト作成
-          </button>
+          <div className="flex flex-col gap-3">
+
+            <button
+              onClick={openProjectModal}
+              className="rounded-xl bg-slate-900 px-5 py-3 text-white hover:bg-slate-700"
+            >
+              ＋ 新規プロジェクト作成
+            </button>
+
+            <button
+              onClick={() => {
+                console.log("JSON読込ボタン");
+                fileInputRef.current?.click();
+              }}
+              className="rounded-xl border border-slate-300 bg-white px-5 py-3 hover:bg-slate-100"
+            >
+              📂 JSON読込
+            </button>
+
+            {isTgsMode && (
+              <button
+                onClick={() => {
+                  console.log("共有クラウド読込");
+                  loadCloudProjects();
+                }}
+                className="rounded-xl border border-blue-300 bg-blue-50 px-5 py-3 hover:bg-blue-100"
+              >
+                ☁️ 共有クラウド読込
+              </button>
+            )}
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json"
+              onChange={importProjectsJson}
+              className="hidden"
+            />
+
+          </div>
+
+
 
         </div>
 
@@ -1449,7 +1519,7 @@ export default function Home() {
                       }}
                       className="block w-full border-b border-slate-100 px-4 py-3 text-left text-sm hover:bg-slate-100"
                     >
-                      クラウド保存
+                      共有クラウド保存
                     </button>
 
                     <button
@@ -1459,7 +1529,7 @@ export default function Home() {
                       }}
                       className="block w-full border-b border-slate-100 px-4 py-3 text-left text-sm hover:bg-slate-100"
                     >
-                      クラウド読込
+                      共有クラウド読込
                     </button>
 
                     <button
