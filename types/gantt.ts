@@ -22,6 +22,10 @@ export type Task = {
 export type Project = {
   id: number;
   name: string;
+
+  updatedBy: string;
+  updatedAt: string;
+
   startDate: string;
   endDate: string;
 

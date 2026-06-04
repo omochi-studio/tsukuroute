@@ -177,3 +177,73 @@ export async function saveProjectJsonToSharedFolder(
     .api(`/drives/${driveId}/items/${folderId}:/tsukuroute-project.json:/content`)
     .put(jsonText);
 }
+
+export async function saveSharedIndexJson(
+  msalInstance: IPublicClientApplication,
+  shareUrl: string,
+  data: unknown
+) {
+  const accessToken = await getToken(msalInstance);
+  const client = getGraphClient(accessToken);
+
+  const shareId = encodeSharingUrl(shareUrl);
+
+  const folder = await client.api(`/shares/${shareId}/driveItem`).get();
+
+  const driveId = folder.parentReference.driveId;
+  const folderId = folder.id;
+
+  const jsonText = JSON.stringify(data, null, 2);
+
+  return await client
+    .api(`/drives/${driveId}/items/${folderId}:/index.json:/content`)
+    .put(jsonText);
+}
+
+export async function saveSharedProjectJson(
+  msalInstance: IPublicClientApplication,
+  shareUrl: string,
+  projectId: number,
+  data: unknown
+) {
+  const accessToken = await getToken(msalInstance);
+  const client = getGraphClient(accessToken);
+
+  const shareId = encodeSharingUrl(shareUrl);
+
+  const folder = await client.api(`/shares/${shareId}/driveItem`).get();
+
+  const driveId = folder.parentReference.driveId;
+  const folderId = folder.id;
+
+  const jsonText = JSON.stringify(data, null, 2);
+
+  return await client
+    .api(
+      `/drives/${driveId}/items/${folderId}:/projects/project-${projectId}.json:/content`
+    )
+    .put(jsonText);
+}
+
+export async function listSharedFolderFiles(
+  msalInstance: IPublicClientApplication,
+  shareUrl: string
+) {
+  const accessToken = await getToken(msalInstance);
+  const client = getGraphClient(accessToken);
+
+  const shareId = encodeSharingUrl(shareUrl);
+
+  const folder = await client
+    .api(`/shares/${shareId}/driveItem`)
+    .get();
+
+  const driveId = folder.parentReference.driveId;
+  const folderId = folder.id;
+
+  const children = await client
+    .api(`/drives/${driveId}/items/${folderId}/children`)
+    .get();
+
+  return children.value;
+}

@@ -17,13 +17,19 @@ import {
 import HelpMenu from "@/components/HelpMenu";
 import LoginButton from "@/components/LoginButton";
 
+import {
+  saveProjectJsonToOneDrive,
+  loadProjectJsonFromOneDrive,
+  loadProjectJsonFromSharedFolder,
+  saveProjectJsonToSharedFolder,
+  listSharedFolderFiles,
+  saveSharedIndexJson,
+  saveSharedProjectJson,
+} from "@/utils/graph";
+
 import { useRef } from "react";
 
 import { useMsal } from "@azure/msal-react";
-import {
-  loadProjectJsonFromSharedFolder,
-  saveProjectJsonToSharedFolder,
-} from "@/utils/graph";
 
 import {
   getCurrentUserName,
@@ -50,11 +56,15 @@ const APP_VERSION = "つくる〜と v1.2.1";
 
 export default function Home() {
 
+  const [lastCloudSavedAt, setLastCloudSavedAt] = useState("");
+
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [sharedFolderUrl, setSharedFolderUrl] = useState("");
+
+  const [isShareSettingsOpen, setIsShareSettingsOpen] = useState(false);
 
   const [isClientReady, setIsClientReady] = useState(false);
   const [isTgsMode, setIsTgsMode] = useState(false);
@@ -83,7 +93,7 @@ export default function Home() {
   const [selectedCategory, setSelectedCategory] = useState("すべて");
   const [sortMode, setSortMode] = useState("created");
   const [isLoaded, setIsLoaded] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(true);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [isProjectMenuOpen, setIsProjectMenuOpen] = useState(false);
   const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
@@ -515,11 +525,17 @@ export default function Home() {
     const newProject: Project = {
       id: newProjectId,
       name: newProjectName,
+
+      updatedBy: getUpdaterName(),
+      updatedAt: getCurrentDateTimeText(),
+
       startDate,
       endDate,
+
       workdayMode: "all",
       customWorkdays: [1, 2, 3, 4, 5],
       customHolidays: [],
+
       tasks: [],
     };
 
@@ -571,6 +587,8 @@ export default function Home() {
     updateSelectedProject({
       ...selectedProject,
       name: renameProjectName,
+      updatedBy: getUpdaterName(),
+      updatedAt: getCurrentDateTimeText(),
     });
 
     setIsRenameModalOpen(false);
@@ -737,10 +755,35 @@ export default function Home() {
         return;
       }
 
+      const cloudData = await loadProjectJsonFromSharedFolder(
+        instance,
+        sharedFolderUrl
+      );
+
+      if (
+        cloudData.savedAt &&
+        lastCloudSavedAt &&
+        cloudData.savedAt !== lastCloudSavedAt
+      ) {
+        const overwrite = confirm(
+          `他のユーザーが先に更新しています。\n\n` +
+          `クラウド更新時刻：${cloudData.savedAt}\n` +
+          `自分が最後に読み込んだ時刻：${lastCloudSavedAt}\n\n` +
+          `上書きしますか？`
+        );
+
+        if (!overwrite) {
+          alert("保存をキャンセルしました。先に共有クラウド読込をしてください。");
+          return;
+        }
+      }
+
+      const savedAt = getCurrentDateTimeText();
+
       const data = {
         appName: "つくる〜と",
         version: APP_VERSION,
-        savedAt: getCurrentDateTimeText(),
+        savedAt,
         savedBy: getUpdaterName(),
         projects,
       };
@@ -750,6 +793,8 @@ export default function Home() {
         sharedFolderUrl,
         data
       );
+
+      setLastCloudSavedAt(savedAt);
 
       alert("共有クラウドに保存しました！");
     } catch (error) {
@@ -776,6 +821,7 @@ export default function Home() {
       }
 
       setProjects(data.projects);
+      setLastCloudSavedAt(data.savedAt ?? "");
 
       if (data.projects.length > 0) {
         setSelectedProjectId(data.projects[0].id);
@@ -786,6 +832,112 @@ export default function Home() {
     } catch (error) {
       console.error("Shared Cloud Load Error:", error);
       alert("共有クラウド読込に失敗しました");
+    }
+  }
+
+  async function savePersonalCloudProjects() {
+    try {
+      const data = {
+        appName: "つくる〜と",
+        version: APP_VERSION,
+        savedAt: getCurrentDateTimeText(),
+        savedBy: getUpdaterName(),
+        projects,
+      };
+
+      await saveProjectJsonToOneDrive(instance, data);
+
+      alert("個人クラウドに保存しました！");
+    } catch (error) {
+      console.error("Personal Cloud Save Error:", error);
+      alert("個人クラウド保存に失敗しました");
+    }
+  }
+
+  async function migrateSharedProjectsToSplitFiles() {
+    try {
+      if (!sharedFolderUrl) {
+        alert("共有フォルダリンクを設定してください");
+        return;
+      }
+
+      if (projects.length === 0) {
+        alert("移行するプロジェクトがありません");
+        return;
+      }
+
+      const result = confirm(
+        `現在の ${projects.length} 件のプロジェクトを分割保存します。\n\n` +
+        `共有フォルダに index.json と project-xxx.json を作成します。\n` +
+        `実行しますか？`
+      );
+
+      if (!result) return;
+
+      const savedAt = getCurrentDateTimeText();
+      const savedBy = getUpdaterName();
+
+      const indexData = {
+        appName: "つくる〜と",
+        version: APP_VERSION,
+        format: "split-projects",
+        savedAt,
+        savedBy,
+        projects: projects.map((project) => ({
+          id: project.id,
+          name: project.name,
+          startDate: project.startDate,
+          endDate: project.endDate,
+          updatedBy: project.updatedBy || savedBy,
+          updatedAt: project.updatedAt || savedAt,
+          fileName: `project-${project.id}.json`,
+        })),
+      };
+
+      await saveSharedIndexJson(instance, sharedFolderUrl, indexData);
+
+      for (const project of projects) {
+        const projectData = {
+          ...project,
+          updatedBy: project.updatedBy || savedBy,
+          updatedAt: project.updatedAt || savedAt,
+        };
+
+        await saveSharedProjectJson(
+          instance,
+          sharedFolderUrl,
+          project.id,
+          projectData
+        );
+      }
+
+      alert("分割保存への移行が完了しました！");
+    } catch (error) {
+      console.error("Split Migration Error:", error);
+      alert("分割保存への移行に失敗しました");
+    }
+  }
+
+  async function loadPersonalCloudProjects() {
+    try {
+      const data = await loadProjectJsonFromOneDrive(instance);
+
+      if (!data.projects) {
+        alert("個人クラウドデータが不正です");
+        return;
+      }
+
+      setProjects(data.projects);
+
+      if (data.projects.length > 0) {
+        setSelectedProjectId(data.projects[0].id);
+        setSelectedCategory("すべて");
+      }
+
+      alert("個人クラウドから読み込みました！");
+    } catch (error) {
+      console.error("Personal Cloud Load Error:", error);
+      alert("個人クラウド読込に失敗しました");
     }
   }
 
@@ -1370,6 +1522,7 @@ export default function Home() {
               className="rounded-xl bg-slate-900 px-5 py-3 text-white hover:bg-slate-700"
             >
               ＋ 新規プロジェクト作成
+
             </button>
 
             <button
@@ -1392,6 +1545,17 @@ export default function Home() {
               >
                 ☁️ 共有クラウド読込
               </button>
+            )}
+
+            {isTgsMode && (
+              <button
+                type="button"
+                onClick={() => setIsShareSettingsOpen(true)}
+                className="rounded-xl border border-slate-300 bg-white px-5 py-3 hover:bg-slate-100"
+              >
+                ⚙️ 共有設定
+              </button>
+
             )}
 
             <input
@@ -1497,6 +1661,37 @@ export default function Home() {
                       JSON出力
                     </button>
 
+                    <button
+                      type="button"
+                      onClick={() => {
+                        migrateSharedProjectsToSplitFiles();
+                        setIsExportMenuOpen(false);
+                      }}
+                      className="block w-full border-b border-slate-100 px-4 py-3 text-left text-sm hover:bg-slate-100"
+                    >
+                      分割保存へ移行
+                    </button>
+
+                    <button
+                      onClick={async () => {
+                        try {
+                          const files = await listSharedFolderFiles(
+                            instance,
+                            sharedFolderUrl
+                          );
+
+                          console.log(files);
+
+                          alert(
+                            files.map((f: any) => f.name).join("\n")
+                          );
+                        } catch (error) {
+                          console.error(error);
+                        }
+                      }}
+                    >
+                      ファイル一覧テスト
+                    </button>
 
                     <label className="block cursor-pointer border-b border-slate-100 px-4 py-3 text-sm hover:bg-slate-100">
                       JSON読込
@@ -1512,25 +1707,62 @@ export default function Home() {
                       />
                     </label>
 
-                    <button
-                      onClick={() => {
-                        saveCloudProjects();
-                        setIsExportMenuOpen(false);
-                      }}
-                      className="block w-full border-b border-slate-100 px-4 py-3 text-left text-sm hover:bg-slate-100"
-                    >
-                      共有クラウド保存
-                    </button>
+                    {isTgsMode ? (
+                      <>
+                        <button
+                          onClick={() => {
+                            saveCloudProjects();
+                            setIsExportMenuOpen(false);
+                          }}
+                          className="block w-full border-b border-slate-100 px-4 py-3 text-left text-sm hover:bg-slate-100"
+                        >
+                          共有クラウド保存
+                        </button>
 
-                    <button
-                      onClick={() => {
-                        loadCloudProjects();
-                        setIsExportMenuOpen(false);
-                      }}
-                      className="block w-full border-b border-slate-100 px-4 py-3 text-left text-sm hover:bg-slate-100"
-                    >
-                      共有クラウド読込
-                    </button>
+                        <button
+                          onClick={() => {
+                            loadCloudProjects();
+                            setIsExportMenuOpen(false);
+                          }}
+                          className="block w-full border-b border-slate-100 px-4 py-3 text-left text-sm hover:bg-slate-100"
+                        >
+                          共有クラウド読込
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsShareSettingsOpen(true);
+                            setIsExportMenuOpen(false);
+                          }}
+                          className="block w-full border-b border-slate-100 px-4 py-3 text-left text-sm hover:bg-slate-100"
+                        >
+                          共有設定
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => {
+                            savePersonalCloudProjects();
+                            setIsExportMenuOpen(false);
+                          }}
+                          className="block w-full border-b border-slate-100 px-4 py-3 text-left text-sm hover:bg-slate-100"
+                        >
+                          個人クラウド保存
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            loadPersonalCloudProjects();
+                            setIsExportMenuOpen(false);
+                          }}
+                          className="block w-full border-b border-slate-100 px-4 py-3 text-left text-sm hover:bg-slate-100"
+                        >
+                          個人クラウド読込
+                        </button>
+                      </>
+                    )}
 
                     <button
                       onClick={() => {
@@ -2017,6 +2249,57 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      {isShareSettingsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
+            <h2 className="mb-2 text-xl font-bold">共有設定</h2>
+
+            <p className="mb-4 text-sm text-slate-500">
+              TGS共同編集で使用するOneDrive共有フォルダのリンクを設定します。
+            </p>
+
+            <label className="mb-2 block text-sm font-bold text-slate-600">
+              共有フォルダリンク
+            </label>
+
+            <input
+              type="text"
+              value={sharedFolderUrl}
+              onChange={(e) => setSharedFolderUrl(e.target.value)}
+              placeholder="https://..."
+              className="mb-4 w-full rounded-xl border border-slate-300 px-4 py-3"
+            />
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsShareSettingsOpen(false)}
+                className="rounded-xl border border-slate-300 bg-white px-4 py-2 hover:bg-slate-100"
+              >
+                閉じる
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  localStorage.setItem(
+                    "tsukuroute-shared-folder-url",
+                    sharedFolderUrl
+                  );
+
+                  alert("共有設定を保存しました");
+                  setIsShareSettingsOpen(false);
+                }}
+                className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-700"
+              >
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <HelpMenu feedbackUrl=
         "https://docs.google.com/forms/d/e/1FAIpQLSdfd8H-WeQlqviXlfpa91sZ60uU2RO0g53Rhk_tNgVWHIREsg/viewform?usp=publish-editor" />
       <VersionLabel version={APP_VERSION} />
