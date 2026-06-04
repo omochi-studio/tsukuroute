@@ -1672,27 +1672,6 @@ export default function Home() {
                       分割保存へ移行
                     </button>
 
-                    <button
-                      onClick={async () => {
-                        try {
-                          const files = await listSharedFolderFiles(
-                            instance,
-                            sharedFolderUrl
-                          );
-
-                          console.log(files);
-
-                          alert(
-                            files.map((f: any) => f.name).join("\n")
-                          );
-                        } catch (error) {
-                          console.error(error);
-                        }
-                      }}
-                    >
-                      ファイル一覧テスト
-                    </button>
-
                     <label className="block cursor-pointer border-b border-slate-100 px-4 py-3 text-sm hover:bg-slate-100">
                       JSON読込
 
