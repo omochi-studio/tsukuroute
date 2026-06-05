@@ -136,20 +136,21 @@ export async function loadProjectJsonFromSharedFolder(
 
   const shareId = encodeSharingUrl(shareUrl);
 
-  const folder = await client
-    .api(`/shares/${shareId}/driveItem`)
-    .get();
-
-  const driveId = folder.parentReference.driveId;
-  const folderId = folder.id;
-
   const file = await client
-    .api(`/drives/${driveId}/items/${folderId}:/tsukuroute-project.json`)
+    .api(`/shares/${shareId}/driveItem:/tsukuroute-project.json`)
     .get();
 
   const downloadUrl = file["@microsoft.graph.downloadUrl"] as string;
 
+  if (!downloadUrl) {
+    throw new Error("共有ファイルのダウンロードURLを取得できませんでした");
+  }
+
   const response = await fetch(downloadUrl);
+
+  if (!response.ok) {
+    throw new Error("共有クラウドファイルの取得に失敗しました");
+  }
 
   return await response.json();
 }
@@ -163,18 +164,10 @@ export async function saveProjectJsonToSharedFolder(
   const client = getGraphClient(accessToken);
 
   const shareId = encodeSharingUrl(shareUrl);
-
-  const folder = await client
-    .api(`/shares/${shareId}/driveItem`)
-    .get();
-
-  const driveId = folder.parentReference.driveId;
-  const folderId = folder.id;
-
   const jsonText = JSON.stringify(data, null, 2);
 
   return await client
-    .api(`/drives/${driveId}/items/${folderId}:/tsukuroute-project.json:/content`)
+    .api(`/shares/${shareId}/driveItem:/tsukuroute-project.json:/content`)
     .put(jsonText);
 }
 
@@ -187,16 +180,10 @@ export async function saveSharedIndexJson(
   const client = getGraphClient(accessToken);
 
   const shareId = encodeSharingUrl(shareUrl);
-
-  const folder = await client.api(`/shares/${shareId}/driveItem`).get();
-
-  const driveId = folder.parentReference.driveId;
-  const folderId = folder.id;
-
   const jsonText = JSON.stringify(data, null, 2);
 
   return await client
-    .api(`/drives/${driveId}/items/${folderId}:/index.json:/content`)
+    .api(`/shares/${shareId}/driveItem:/index.json:/content`)
     .put(jsonText);
 }
 
@@ -210,17 +197,11 @@ export async function saveSharedProjectJson(
   const client = getGraphClient(accessToken);
 
   const shareId = encodeSharingUrl(shareUrl);
-
-  const folder = await client.api(`/shares/${shareId}/driveItem`).get();
-
-  const driveId = folder.parentReference.driveId;
-  const folderId = folder.id;
-
   const jsonText = JSON.stringify(data, null, 2);
 
   return await client
     .api(
-      `/drives/${driveId}/items/${folderId}:/projects/project-${projectId}.json:/content`
+      `/shares/${shareId}/driveItem:/projects/project-${projectId}.json:/content`
     )
     .put(jsonText);
 }
@@ -234,15 +215,8 @@ export async function listSharedFolderFiles(
 
   const shareId = encodeSharingUrl(shareUrl);
 
-  const folder = await client
-    .api(`/shares/${shareId}/driveItem`)
-    .get();
-
-  const driveId = folder.parentReference.driveId;
-  const folderId = folder.id;
-
   const children = await client
-    .api(`/drives/${driveId}/items/${folderId}/children`)
+    .api(`/shares/${shareId}/driveItem/children`)
     .get();
 
   return children.value;
