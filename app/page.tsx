@@ -48,7 +48,7 @@ import {
    ========================= */
 const STORAGE_KEY = "tsukuroute-projects";
 const USER_NAME_KEY = "tsukuroute-user-name";
-const APP_VERSION = "つくる〜と v1.2.1";
+const APP_VERSION = "つくる〜と v1.3.2";
 
 /*const isTgsMode =
   typeof window !== "undefined" &&
