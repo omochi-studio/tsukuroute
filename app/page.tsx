@@ -43,12 +43,14 @@ import {
   isAllowedDomain,
 } from "@/utils/auth";
 
+import { supabase } from "@/utils/supabaseClient";
+
 /* =========================
    保存用キー・バージョン
    ========================= */
 const STORAGE_KEY = "tsukuroute-projects";
 const USER_NAME_KEY = "tsukuroute-user-name";
-const APP_VERSION = "つくる〜と v1.3.2";
+const APP_VERSION = "つくる〜と V2.0.0 β";
 
 /*const isTgsMode =
   typeof window !== "undefined" &&
@@ -104,6 +106,42 @@ export default function Home() {
   const [authorized, setAuthorized] = useState(false);
 
   /* =========================
+     自動保存・自動同期
+     ========================= */
+  const [isSaving, setIsSaving] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState("");
+
+  // 変更後5秒で自動保存
+  useEffect(() => {
+    if (!isLoaded) return;
+    if (isSyncing) return;
+    if (projects.length === 0) return;
+
+    const timer = setTimeout(() => {
+      saveSupabaseProjects();
+    }, 5000);
+
+    return () => clearTimeout(timer);
+  }, [projects, isLoaded, isSyncing]);
+
+  // TGS版のみ、30秒ごとにクラウドから自動同期
+  useEffect(() => {
+    if (!isLoaded) return;
+    if (!isTgsMode) return;
+    if (isSaving) return;
+
+    const timer = setInterval(() => {
+      loadSupabaseProjects({
+        silent: true,
+        preserveSelection: true,
+      });
+    }, 30000);
+
+    return () => clearInterval(timer);
+  }, [isLoaded, isTgsMode, isSaving]);
+
+  /* =========================
      ユーザー名
      ========================= */
   const [currentUserName, setCurrentUserName] = useState("");
@@ -146,6 +184,8 @@ export default function Home() {
 
       setIsLoggedIn(accounts.length > 0);
     }
+
+
 
     refreshUser();
 
@@ -383,9 +423,15 @@ export default function Home() {
   }
 
   function updateSelectedProject(updatedProject: Project) {
-    setProjects(
-      projects.map((project) =>
-        project.id === updatedProject.id ? updatedProject : project
+    const touchedProject: Project = {
+      ...updatedProject,
+      updatedBy: getUpdaterName(),
+      updatedAt: getCurrentDateTimeText(),
+    };
+
+    setProjects((prevProjects) =>
+      prevProjects.map((project) =>
+        project.id === touchedProject.id ? touchedProject : project
       )
     );
   }
@@ -747,6 +793,214 @@ export default function Home() {
 
     URL.revokeObjectURL(url);
   }
+
+  async function saveSupabaseProjects(options?: { silent?: boolean }) {
+    if (isSyncing) return;
+
+    try {
+      setIsSaving(true);
+
+      const savedAt = getCurrentDateTimeText();
+      const savedBy = getUpdaterName();
+      const projectIds = projects.map((project) => project.id);
+
+      // 画面上で削除されたプロジェクトをSupabase側からも削除
+      if (projectIds.length > 0) {
+        const { error: deleteOldProjectsError } = await supabase
+          .from("projects")
+          .delete()
+          .not("id", "in", `(${projectIds.join(",")})`);
+
+        if (deleteOldProjectsError) {
+          throw deleteOldProjectsError;
+        }
+      } else {
+        // プロジェクトが0件になった場合は全削除
+        const { error: deleteAllTasksError } = await supabase
+          .from("tasks")
+          .delete()
+          .neq("id", 0);
+
+        if (deleteAllTasksError) {
+          throw deleteAllTasksError;
+        }
+
+        const { error: deleteAllProjectsError } = await supabase
+          .from("projects")
+          .delete()
+          .neq("id", 0);
+
+        if (deleteAllProjectsError) {
+          throw deleteAllProjectsError;
+        }
+      }
+
+      for (const project of projects) {
+        const { error: projectError } = await supabase
+          .from("projects")
+          .upsert({
+            id: project.id,
+            name: project.name,
+            start_date: project.startDate,
+            end_date: project.endDate,
+            workday_mode: project.workdayMode,
+            custom_workdays: project.customWorkdays,
+            custom_holidays: project.customHolidays,
+            updated_by: project.updatedBy || savedBy,
+            updated_at: project.updatedAt || savedAt,
+          });
+
+        if (projectError) {
+          throw projectError;
+        }
+
+        const { error: deleteTasksError } = await supabase
+          .from("tasks")
+          .delete()
+          .eq("project_id", project.id);
+
+        if (deleteTasksError) {
+          throw deleteTasksError;
+        }
+
+        if (project.tasks.length > 0) {
+          const { error: insertTasksError } = await supabase
+            .from("tasks")
+            .insert(
+              project.tasks.map((task) => ({
+                id: task.id,
+                project_id: project.id,
+                name: task.name,
+                category: task.category,
+                assignee: task.assignee ?? null,
+                assignees: task.assignees ?? [],
+                start_date: task.startDate,
+                duration: task.duration,
+                progress: task.progress,
+                color: task.color,
+                updated_by: task.updatedBy || savedBy,
+                updated_at: task.updatedAt || savedAt,
+                workday_mode: task.workdayMode,
+                custom_workdays: task.customWorkdays,
+                custom_holidays: task.customHolidays,
+              }))
+            );
+
+          if (insertTasksError) {
+            throw insertTasksError;
+          }
+        }
+      }
+
+      setLastSavedAt(savedAt);
+
+      if (!options?.silent) {
+      }
+    } catch (error) {
+      console.error("Supabase Save Error:", error);
+
+      if (!options?.silent) {
+        alert("クラウド保存に失敗しました");
+      }
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function loadSupabaseProjects(options?: {
+    silent?: boolean;
+    preserveSelection?: boolean;
+  }) {
+    try {
+      setIsSyncing(true);
+
+      const { data: projectRows, error: projectError } = await supabase
+        .from("projects")
+        .select("*")
+        .order("id", { ascending: true });
+
+      if (projectError) {
+        throw projectError;
+      }
+
+      const { data: taskRows, error: taskError } = await supabase
+        .from("tasks")
+        .select("*")
+        .order("id", { ascending: true });
+
+      if (taskError) {
+        throw taskError;
+      }
+
+      const loadedProjects: Project[] = (projectRows ?? []).map((project) => ({
+        id: project.id,
+        name: project.name,
+        startDate: project.start_date,
+        endDate: project.end_date,
+
+        updatedBy: project.updated_by ?? "",
+        updatedAt: project.updated_at ?? "",
+
+        workdayMode: project.workday_mode,
+        customWorkdays: project.custom_workdays ?? [],
+        customHolidays: project.custom_holidays ?? [],
+
+        tasks: (taskRows ?? [])
+          .filter((task) => task.project_id === project.id)
+          .map((task) => ({
+            id: task.id,
+            name: task.name,
+            category: task.category,
+            assignee: task.assignee ?? undefined,
+            assignees: task.assignees ?? [],
+            startDate: task.start_date,
+            duration: task.duration,
+            progress: task.progress,
+            color: task.color,
+
+            updatedBy: task.updated_by ?? "",
+            updatedAt: task.updated_at ?? "",
+
+            workdayMode: task.workday_mode,
+            customWorkdays: task.custom_workdays ?? [],
+            customHolidays: task.custom_holidays ?? [],
+          })),
+      }));
+
+      setProjects(loadedProjects);
+
+      setSelectedProjectId((currentId) => {
+        if (
+          options?.preserveSelection &&
+          currentId !== null &&
+          loadedProjects.some((project) => project.id === currentId)
+        ) {
+          return currentId;
+        }
+
+        return loadedProjects.length > 0 ? loadedProjects[0].id : null;
+      });
+
+      if (!options?.preserveSelection) {
+        setSelectedCategory("すべて");
+      }
+
+      setIsLoaded(true);
+
+      if (!options?.silent) {
+        alert("クラウドから読み込みました！");
+      }
+    } catch (error) {
+      console.error("Supabase Load Error:", error);
+
+      if (!options?.silent) {
+        alert("クラウド読込に失敗しました");
+      }
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
 
   async function saveCloudProjects() {
     try {
@@ -1537,25 +1791,12 @@ export default function Home() {
 
             {isTgsMode && (
               <button
-                onClick={() => {
-                  console.log("共有クラウド読込");
-                  loadCloudProjects();
-                }}
+                type="button"
+                onClick={() => loadSupabaseProjects()}
                 className="rounded-xl border border-blue-300 bg-blue-50 px-5 py-3 hover:bg-blue-100"
               >
-                ☁️ 共有クラウド読込
+                ☁ クラウド読込
               </button>
-            )}
-
-            {isTgsMode && (
-              <button
-                type="button"
-                onClick={() => setIsShareSettingsOpen(true)}
-                className="rounded-xl border border-slate-300 bg-white px-5 py-3 hover:bg-slate-100"
-              >
-                ⚙️ 共有設定
-              </button>
-
             )}
 
             <input
@@ -1690,36 +1931,29 @@ export default function Home() {
                       <>
                         <button
                           onClick={() => {
-                            saveCloudProjects();
+                            saveSupabaseProjects({ silent: false });
                             setIsExportMenuOpen(false);
                           }}
                           className="block w-full border-b border-slate-100 px-4 py-3 text-left text-sm hover:bg-slate-100"
                         >
-                          共有クラウド保存
+                          クラウド保存
                         </button>
 
                         <button
                           onClick={() => {
-                            loadCloudProjects();
+                            loadSupabaseProjects({
+                              silent: false,
+                              preserveSelection: true,
+                            });
                             setIsExportMenuOpen(false);
                           }}
                           className="block w-full border-b border-slate-100 px-4 py-3 text-left text-sm hover:bg-slate-100"
                         >
-                          共有クラウド読込
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsShareSettingsOpen(true);
-                            setIsExportMenuOpen(false);
-                          }}
-                          className="block w-full border-b border-slate-100 px-4 py-3 text-left text-sm hover:bg-slate-100"
-                        >
-                          共有設定
+                          クラウド読込
                         </button>
                       </>
                     ) : (
+
                       <>
                         <button
                           onClick={() => {
@@ -2278,6 +2512,14 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      <div className="fixed bottom-10 left-4 rounded-full bg-white px-3 py-1 text-xs text-slate-500 shadow">
+        {isSaving
+          ? "☁ 保存中..."
+          : lastSavedAt
+            ? `☁ 保存済み ${lastSavedAt}`
+            : "未保存"}
+      </div>
 
       <HelpMenu feedbackUrl=
         "https://docs.google.com/forms/d/e/1FAIpQLSdfd8H-WeQlqviXlfpa91sZ60uU2RO0g53Rhk_tNgVWHIREsg/viewform?usp=publish-editor" />
