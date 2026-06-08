@@ -50,7 +50,7 @@ import { supabase } from "@/utils/supabaseClient";
    ========================= */
 const STORAGE_KEY = "tsukuroute-projects";
 const USER_NAME_KEY = "tsukuroute-user-name";
-const APP_VERSION = "つくる〜と V2.0.0 β";
+const APP_VERSION = "つくる〜と V2.1.0 β";
 
 /*const isTgsMode =
   typeof window !== "undefined" &&
