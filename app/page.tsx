@@ -116,6 +116,7 @@ export default function Home() {
   useEffect(() => {
     if (!isLoaded) return;
     if (isSyncing) return;
+    if (!isTgsMode) return;
     if (projects.length === 0) return;
 
     const timer = setTimeout(() => {
