@@ -50,7 +50,7 @@ import { supabase } from "@/utils/supabaseClient";
    ========================= */
 const STORAGE_KEY = "tsukuroute-projects";
 const USER_NAME_KEY = "tsukuroute-user-name";
-const APP_VERSION = "つくる〜と V2.1.0 β";
+const APP_VERSION = "つくる〜と V2.2.0 β";
 
 /*const isTgsMode =
   typeof window !== "undefined" &&
@@ -113,7 +113,7 @@ export default function Home() {
   const [lastSavedAt, setLastSavedAt] = useState("");
 
   // 変更後5秒で自動保存
-  useEffect(() => {
+  /*useEffect(() => {
     if (!isLoaded) return;
     if (isSyncing) return;
     if (!isTgsMode) return;
@@ -124,10 +124,10 @@ export default function Home() {
     }, 5000);
 
     return () => clearTimeout(timer);
-  }, [projects, isLoaded, isSyncing]);
+  }, [projects, isLoaded, isSyncing]);*/
 
   // TGS版のみ、30秒ごとにクラウドから自動同期
-  useEffect(() => {
+  /*useEffect(() => {
     if (!isLoaded) return;
     if (!isTgsMode) return;
     if (isSaving) return;
@@ -140,7 +140,36 @@ export default function Home() {
     }, 30000);
 
     return () => clearInterval(timer);
-  }, [isLoaded, isTgsMode, isSaving]);
+  }, [isLoaded, isTgsMode, isSaving]);*/
+
+  useEffect(() => {
+    if (!isTgsMode) return;
+    if (!isLoaded) return;
+
+    const channel = supabase
+      .channel("tasks-realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "tasks",
+        },
+        (payload) => {
+          console.log("Realtime task change:", payload);
+
+          loadSupabaseProjects({
+            silent: true,
+            preserveSelection: true,
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [isTgsMode, isLoaded]);
 
   /* =========================
      ユーザー名
@@ -660,7 +689,7 @@ export default function Home() {
     setIsTaskModalOpen(true);
   }
 
-  function addTask() {
+  async function addTask() {
     if (!selectedProject) return;
 
     if (newTaskName.trim() === "") {
@@ -681,7 +710,9 @@ export default function Home() {
       id: Date.now(),
       name: newTaskName,
       category: newTaskCategory,
-      assignees: [newTaskAssignee1, newTaskAssignee2, newTaskAssignee3,].filter((name) => name.trim() !== ""),
+      assignees: [newTaskAssignee1, newTaskAssignee2, newTaskAssignee3].filter(
+        (name) => name.trim() !== ""
+      ),
       startDate: newTaskStartDate,
       duration: newTaskDuration,
       progress: newTaskProgress,
@@ -697,6 +728,8 @@ export default function Home() {
       ...selectedProject,
       tasks: [...selectedProject.tasks, newTask],
     });
+
+    await saveTaskToSupabase(selectedProject.id, newTask);
 
     setSelectedCategory("すべて");
     setIsTaskModalOpen(false);
@@ -723,7 +756,7 @@ export default function Home() {
     setEditTaskCustomWorkdays(task.customWorkdays ?? [1, 2, 3, 4, 5]);
   }
 
-  function saveEditedTask() {
+  async function saveEditedTask() {
     if (!selectedProject) return;
     if (editingTaskId === null) return;
 
@@ -732,14 +765,20 @@ export default function Home() {
       return;
     }
 
+    let savedTask: Task | null = null;
+
     const updatedTasks = selectedProject.tasks.map((task) => {
       if (task.id !== editingTaskId) return task;
 
-      return {
+      savedTask = {
         ...task,
         name: editTaskName,
         category: editTaskCategory,
-        assignees: [editTaskAssignee1, editTaskAssignee2, editTaskAssignee3,].filter((name) => name.trim() !== ""),
+        assignees: [
+          editTaskAssignee1,
+          editTaskAssignee2,
+          editTaskAssignee3,
+        ].filter((name) => name.trim() !== ""),
         startDate: editTaskStartDate,
         duration: editTaskDuration,
         progress: editTaskProgress,
@@ -748,6 +787,8 @@ export default function Home() {
         workdayMode: editTaskWorkdayMode,
         customWorkdays: editTaskCustomWorkdays,
       };
+
+      return savedTask;
     });
 
     updateSelectedProject({
@@ -755,10 +796,14 @@ export default function Home() {
       tasks: updatedTasks,
     });
 
+    if (savedTask) {
+      await saveTaskToSupabase(selectedProject.id, savedTask);
+    }
+
     setEditingTaskId(null);
   }
 
-  function deleteEditingTask() {
+  async function deleteEditingTask() {
     if (!selectedProject) return;
     if (editingTaskId === null) return;
 
@@ -769,6 +814,8 @@ export default function Home() {
       ...selectedProject,
       tasks: selectedProject.tasks.filter((task) => task.id !== editingTaskId),
     });
+
+    await deleteTaskFromSupabase(editingTaskId);
 
     setEditingTaskId(null);
   }
@@ -793,6 +840,52 @@ export default function Home() {
     a.click();
 
     URL.revokeObjectURL(url);
+  }
+
+  async function saveTaskToSupabase(projectId: number, task: Task) {
+    const savedAt = getCurrentDateTimeText();
+    const savedBy = getUpdaterName();
+
+    const { error } = await supabase.from("tasks").upsert({
+      id: task.id,
+      project_id: projectId,
+      name: task.name,
+      category: task.category,
+      assignee: task.assignee ?? null,
+      assignees: task.assignees ?? [],
+      start_date: task.startDate,
+      duration: task.duration,
+      progress: task.progress,
+      color: task.color,
+      updated_by: task.updatedBy || savedBy,
+      updated_at: task.updatedAt || savedAt,
+      workday_mode: task.workdayMode,
+      custom_workdays: task.customWorkdays ?? [],
+      custom_holidays: task.customHolidays ?? [],
+    });
+
+    if (error) {
+      console.error("Task Save Error:", error);
+      alert("タスク保存に失敗しました");
+      return;
+    }
+
+    setLastSavedAt(savedAt);
+  }
+
+  async function deleteTaskFromSupabase(taskId: number) {
+    const { error } = await supabase
+      .from("tasks")
+      .delete()
+      .eq("id", taskId);
+
+    if (error) {
+      console.error("Task Delete Error:", error);
+      alert("タスク削除に失敗しました");
+      return;
+    }
+
+    setLastSavedAt(getCurrentDateTimeText());
   }
 
   async function saveSupabaseProjects(options?: { silent?: boolean }) {
@@ -912,6 +1005,8 @@ export default function Home() {
     silent?: boolean;
     preserveSelection?: boolean;
   }) {
+    if (!isTgsMode) return;
+
     try {
       setIsSyncing(true);
 
@@ -920,32 +1015,25 @@ export default function Home() {
         .select("*")
         .order("id", { ascending: true });
 
-      if (projectError) {
-        throw projectError;
-      }
+      if (projectError) throw projectError;
 
       const { data: taskRows, error: taskError } = await supabase
         .from("tasks")
         .select("*")
         .order("id", { ascending: true });
 
-      if (taskError) {
-        throw taskError;
-      }
+      if (taskError) throw taskError;
 
-      const loadedProjects: Project[] = (projectRows ?? []).map((project) => ({
+      const dbProjects: Project[] = (projectRows ?? []).map((project) => ({
         id: project.id,
         name: project.name,
         startDate: project.start_date,
         endDate: project.end_date,
-
         updatedBy: project.updated_by ?? "",
         updatedAt: project.updated_at ?? "",
-
         workdayMode: project.workday_mode,
         customWorkdays: project.custom_workdays ?? [],
         customHolidays: project.custom_holidays ?? [],
-
         tasks: (taskRows ?? [])
           .filter((task) => task.project_id === project.id)
           .map((task) => ({
@@ -958,28 +1046,83 @@ export default function Home() {
             duration: task.duration,
             progress: task.progress,
             color: task.color,
-
             updatedBy: task.updated_by ?? "",
             updatedAt: task.updated_at ?? "",
-
             workdayMode: task.workday_mode,
             customWorkdays: task.custom_workdays ?? [],
             customHolidays: task.custom_holidays ?? [],
           })),
       }));
 
-      setProjects(loadedProjects);
+      setProjects((currentProjects) => {
+        if (currentProjects.length === 0) {
+          return dbProjects;
+        }
+
+        return dbProjects.map((dbProject) => {
+          const currentProject = currentProjects.find(
+            (project) => project.id === dbProject.id
+          );
+
+          if (!currentProject) {
+            return dbProject;
+          }
+
+          const dbTaskIds = new Set(dbProject.tasks.map((task) => task.id));
+
+          const mergedTasks = [
+            ...currentProject.tasks
+              .filter((task) => dbTaskIds.has(task.id))
+              .map((currentTask) => {
+                const dbTask = dbProject.tasks.find(
+                  (task) => task.id === currentTask.id
+                );
+
+                if (!dbTask) return currentTask;
+
+                if (
+                  dbTask.updatedAt &&
+                  currentTask.updatedAt &&
+                  dbTask.updatedAt < currentTask.updatedAt
+                ) {
+                  return currentTask;
+                }
+
+                return dbTask;
+              }),
+            ...dbProject.tasks.filter(
+              (dbTask) =>
+                !currentProject.tasks.some(
+                  (currentTask) => currentTask.id === dbTask.id
+                )
+            ),
+          ];
+
+          return {
+            ...currentProject,
+            name: dbProject.name,
+            startDate: dbProject.startDate,
+            endDate: dbProject.endDate,
+            updatedBy: dbProject.updatedBy,
+            updatedAt: dbProject.updatedAt,
+            workdayMode: dbProject.workdayMode,
+            customWorkdays: dbProject.customWorkdays,
+            customHolidays: dbProject.customHolidays,
+            tasks: mergedTasks,
+          };
+        });
+      });
 
       setSelectedProjectId((currentId) => {
         if (
           options?.preserveSelection &&
           currentId !== null &&
-          loadedProjects.some((project) => project.id === currentId)
+          dbProjects.some((project) => project.id === currentId)
         ) {
           return currentId;
         }
 
-        return loadedProjects.length > 0 ? loadedProjects[0].id : null;
+        return dbProjects.length > 0 ? dbProjects[0].id : null;
       });
 
       if (!options?.preserveSelection) {
