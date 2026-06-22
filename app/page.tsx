@@ -50,24 +50,54 @@ import { supabase } from "@/utils/supabaseClient";
    ========================= */
 const STORAGE_KEY = "tsukuroute-projects";
 const USER_NAME_KEY = "tsukuroute-user-name";
-const APP_VERSION = "つくる〜と V2.2.0 β";
+const APP_VERSION = "つくる〜と V2.3.0 β";
 
 /*const isTgsMode =
   typeof window !== "undefined" &&
   new URLSearchParams(window.location.search).get("mode") === "tgs";*/
 
 export default function Home() {
+  /*=========================
+      アップデート情報の表示
+    =========================*/
+  const UPDATE_NOTE_KEY = "tsukuroute-last-seen-update";
 
+  const [isUpdateNoteOpen, setIsUpdateNoteOpen] = useState(false);
+
+  /*=========================
+      クラウド保存の最終更新日時
+    =========================*/
   const [lastCloudSavedAt, setLastCloudSavedAt] = useState("");
 
+  /*=========================
+  ガントバー色変更
+  =========================*/
+  const [newTaskColor, setNewTaskColor] = useState("#3b82f6");
+  const [editTaskColor, setEditTaskColor] = useState("#3b82f6");
+
+  /*=========================
+      ログイン状態
+    =========================*/
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
+  /*=========================
+      ファイル選択用のref
+    =========================*/
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  /*=========================
+      共有フォルダリンク
+    =========================*/
   const [sharedFolderUrl, setSharedFolderUrl] = useState("");
 
+  /*=========================
+      共有フォルダ設定モーダル
+    =========================*/
   const [isShareSettingsOpen, setIsShareSettingsOpen] = useState(false);
 
+  /*=========================
+      共有フォルダのファイル一覧
+    =========================*/
   const [isClientReady, setIsClientReady] = useState(false);
   const [isTgsMode, setIsTgsMode] = useState(false);
 
@@ -142,6 +172,27 @@ export default function Home() {
     return () => clearInterval(timer);
   }, [isLoaded, isTgsMode, isSaving]);*/
 
+  function dbTaskToTask(task: any): Task {
+    return {
+      id: task.id,
+      name: task.name,
+      category: task.category,
+      assignee: task.assignee ?? undefined,
+      assignees: task.assignees ?? [],
+      startDate: task.start_date,
+      duration: task.duration,
+      progress: task.progress,
+      color: normalizeTaskColor(task.color),
+
+      updatedBy: task.updated_by ?? "",
+      updatedAt: task.updated_at ?? "",
+
+      workdayMode: task.workday_mode,
+      customWorkdays: task.custom_workdays ?? [],
+      customHolidays: task.custom_holidays ?? [],
+    };
+  }
+
   useEffect(() => {
     if (!isTgsMode) return;
     if (!isLoaded) return;
@@ -158,10 +209,68 @@ export default function Home() {
         (payload) => {
           console.log("Realtime task change:", payload);
 
-          loadSupabaseProjects({
-            silent: true,
-            preserveSelection: true,
-          });
+          useEffect(() => {
+            if (!isTgsMode) return;
+            if (!isLoaded) return;
+
+            const channel = supabase
+              .channel("tasks-realtime")
+              .on(
+                "postgres_changes",
+                {
+                  event: "*",
+                  schema: "public",
+                  table: "tasks",
+                },
+                (payload) => {
+                  console.log("Realtime task change:", payload);
+
+                  setProjects((currentProjects) => {
+                    if (payload.eventType === "DELETE") {
+                      const oldTask = payload.old as any;
+
+                      return currentProjects.map((project) => ({
+                        ...project,
+                        tasks: project.tasks.filter(
+                          (task) => task.id !== oldTask.id
+                        ),
+                      }));
+                    }
+
+                    const newRow = payload.new as any;
+                    const changedTask = dbTaskToTask(newRow);
+                    const projectId = newRow.project_id;
+
+                    return currentProjects.map((project) => {
+                      if (project.id !== projectId) return project;
+
+                      const exists = project.tasks.some(
+                        (task) => task.id === changedTask.id
+                      );
+
+                      if (exists) {
+                        return {
+                          ...project,
+                          tasks: project.tasks.map((task) =>
+                            task.id === changedTask.id ? changedTask : task
+                          ),
+                        };
+                      }
+
+                      return {
+                        ...project,
+                        tasks: [...project.tasks, changedTask],
+                      };
+                    });
+                  });
+                }
+              )
+              .subscribe();
+
+            return () => {
+              supabase.removeChannel(channel);
+            };
+          }, [isTgsMode, isLoaded]);
         }
       )
       .subscribe();
@@ -170,6 +279,37 @@ export default function Home() {
       supabase.removeChannel(channel);
     };
   }, [isTgsMode, isLoaded]);
+
+  /* =========================
+    アップデート情報の表示
+  ========================= */
+
+  useEffect(() => {
+    const lastSeenVersion =
+      localStorage.getItem(
+        UPDATE_NOTE_KEY
+      );
+
+    if (lastSeenVersion !== APP_VERSION) {
+      setIsUpdateNoteOpen(true);
+    }
+  }, []);
+
+  /* =========================
+       起動時自動読み込み
+  ========================= */
+
+  useEffect(() => {
+    if (!isClientReady) return;
+    if (!isTgsMode) return;
+    if (!authorized) return;
+    if (isLoaded) return;
+
+    loadSupabaseProjects({
+      silent: true,
+      preserveSelection: true,
+    });
+  }, [isClientReady, isTgsMode, authorized, isLoaded]);
 
   /* =========================
      ユーザー名
@@ -475,54 +615,94 @@ export default function Home() {
     });
   }
 
-  function moveTask(taskId: number, diffDays: number) {
+  function normalizeTaskColor(color?: string) {
+    const colorMap: Record<string, string> = {
+      "bg-blue-500": "#3b82f6",
+      "bg-purple-500": "#a855f7",
+      "bg-green-500": "#22c55e",
+      "bg-amber-500": "#f59e0b",
+      "bg-pink-500": "#ec4899",
+      "bg-slate-500": "#64748b",
+    };
+
+    if (!color) return "#3b82f6";
+
+    if (color.startsWith("#")) return color;
+
+    return colorMap[color] ?? "#3b82f6";
+  }
+
+  async function moveTask(taskId: number, diffDays: number) {
     if (!selectedProject) return;
+
+    let savedTask: Task | null = null;
 
     const updatedTasks = selectedProject.tasks.map((task) => {
       if (task.id !== taskId) return task;
 
       const currentDate = new Date(task.startDate);
-
       currentDate.setDate(currentDate.getDate() + diffDays);
 
-      const newDate = currentDate.toISOString().slice(0, 10);
-
-      return {
+      savedTask = {
         ...task,
-        startDate: newDate,
+        startDate: currentDate.toISOString().slice(0, 10),
         updatedBy: getUpdaterName(),
-        updatedAt: getCurrentDateTimeText(),
+        updatedAt: new Date().toISOString(),
       };
+
+      return savedTask;
     });
 
     updateSelectedProject({
       ...selectedProject,
       tasks: updatedTasks,
     });
+
+    if (savedTask) {
+      await saveTaskToSupabase(selectedProject.id, savedTask);
+    }
   }
 
-  function resizeTask(taskId: number, diffDays: number) {
+  async function resizeTask(taskId: number, diffDays: number) {
     if (!selectedProject) return;
+
+    let savedTask: Task | null = null;
 
     const updatedTasks = selectedProject.tasks.map((task) => {
       if (task.id !== taskId) return task;
 
-      const newDuration = Math.max(1, task.duration + diffDays);
-
-      return {
+      savedTask = {
         ...task,
-        duration: newDuration,
+        duration: Math.max(1, task.duration + diffDays),
         updatedBy: getUpdaterName(),
-        updatedAt: getCurrentDateTimeText(),
+        updatedAt: new Date().toISOString(),
       };
+
+      return savedTask;
     });
 
     updateSelectedProject({
       ...selectedProject,
       tasks: updatedTasks,
     });
+
+    if (savedTask) {
+      await saveTaskToSupabase(selectedProject.id, savedTask);
+    }
   }
 
+  /* =========================
+  アップデート情報の表示
+  ========================= */
+
+  function closeUpdateNote() {
+    localStorage.setItem(
+      UPDATE_NOTE_KEY,
+      APP_VERSION
+    );
+
+    setIsUpdateNoteOpen(false);
+  }
 
   /* =========================
      カスタム曜日切り替え
@@ -687,6 +867,7 @@ export default function Home() {
     setNewTaskWorkdayMode(selectedProject.workdayMode);
     setNewTaskCustomWorkdays(selectedProject.customWorkdays);
     setIsTaskModalOpen(true);
+    setNewTaskColor("#3b82f6");
   }
 
   async function addTask() {
@@ -697,14 +878,6 @@ export default function Home() {
       return;
     }
 
-    const colors = [
-      "bg-blue-500",
-      "bg-purple-500",
-      "bg-green-500",
-      "bg-amber-500",
-      "bg-pink-500",
-      "bg-slate-500",
-    ];
 
     const newTask: Task = {
       id: Date.now(),
@@ -716,7 +889,7 @@ export default function Home() {
       startDate: newTaskStartDate,
       duration: newTaskDuration,
       progress: newTaskProgress,
-      color: colors[selectedProject.tasks.length % colors.length],
+      color: newTaskColor,
       updatedBy: getUpdaterName(),
       updatedAt: getCurrentDateTimeText(),
       workdayMode: newTaskWorkdayMode,
@@ -754,6 +927,7 @@ export default function Home() {
     setEditTaskProgress(task.progress ?? 0);
     setEditTaskWorkdayMode(task.workdayMode ?? selectedProject.workdayMode);
     setEditTaskCustomWorkdays(task.customWorkdays ?? [1, 2, 3, 4, 5]);
+    setEditTaskColor(task.color ?? "#3b82f6");
   }
 
   async function saveEditedTask() {
@@ -786,6 +960,7 @@ export default function Home() {
         updatedAt: getCurrentDateTimeText(),
         workdayMode: editTaskWorkdayMode,
         customWorkdays: editTaskCustomWorkdays,
+        color: normalizeTaskColor(editTaskColor),
       };
 
       return savedTask;
@@ -856,7 +1031,7 @@ export default function Home() {
       start_date: task.startDate,
       duration: task.duration,
       progress: task.progress,
-      color: task.color,
+      color: normalizeTaskColor(task.color),
       updated_by: task.updatedBy || savedBy,
       updated_at: task.updatedAt || savedAt,
       workday_mode: task.workdayMode,
@@ -1045,7 +1220,7 @@ export default function Home() {
             startDate: task.start_date,
             duration: task.duration,
             progress: task.progress,
-            color: task.color,
+            color: normalizeTaskColor(task.color),
             updatedBy: task.updated_by ?? "",
             updatedAt: task.updated_at ?? "",
             workdayMode: task.workday_mode,
@@ -2494,6 +2669,8 @@ export default function Home() {
           onToggleCustomWorkday={toggleNewTaskCustomWorkday}
           onClose={() => setIsTaskModalOpen(false)}
           onSubmit={addTask}
+          color={newTaskColor}
+          onChangeColor={setNewTaskColor}
         />
       )}
 
@@ -2527,6 +2704,8 @@ export default function Home() {
           onClose={() => setEditingTaskId(null)}
           onSubmit={saveEditedTask}
           onDelete={deleteEditingTask}
+          color={editTaskColor}
+          onChangeColor={setEditTaskColor}
         />
       )}
 
@@ -2664,6 +2843,65 @@ export default function Home() {
             ? `☁ 保存済み ${lastSavedAt}`
             : "未保存"}
       </div>
+
+      {/* アップデート情報 */}
+      {isUpdateNoteOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
+            <h2 className="mb-2 text-xl font-bold">
+              アップデート情報
+            </h2>
+
+            <p className="mb-4 text-sm text-slate-500">
+              {APP_VERSION}
+            </p>
+
+            <div className="mb-6 whitespace-pre-line text-sm text-slate-700">
+              {`
+つくる〜と v2.3.0
+
+【新機能】
+
+・起動時の自動クラウド読込を追加
+
+・アップデート情報表示機能を追加
+
+・ガントバーの色変更機能を追加
+
+・今日の日付位置への自動スクロール機能を追加
+
+
+【改善】
+
+・クラウド同期の安定性を向上
+
+・ガントバー移動時の保存処理を改善
+
+・実働日数変更時の保存処理を改善
+
+・共同編集時のデータ上書き問題を改善
+
+
+【修正】
+
+・クラウド読込時に発生するロールバック問題を修正
+
+・共同編集時の同期不具合を修正
+
+・各種保存処理の不具合を修正
+
+`}
+            </div>
+
+            <button
+              onClick={closeUpdateNote}
+              className="w-full rounded-xl bg-slate-900 px-4 py-3 text-white"
+            >
+              確認しました
+            </button>
+          </div>
+        </div>
+      )}
 
       <HelpMenu feedbackUrl=
         "https://docs.google.com/forms/d/e/1FAIpQLSdfd8H-WeQlqviXlfpa91sZ60uU2RO0g53Rhk_tNgVWHIREsg/viewform?usp=publish-editor" />

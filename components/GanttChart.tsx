@@ -1,5 +1,5 @@
 import type { DayInfo, Task } from "@/types/gantt";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   formatDateText,
   getDelayDays,
@@ -35,10 +35,19 @@ export default function GanttChart({
   const todayText = formatDateText(new Date());
   const todayIndex = days.findIndex((day) => day.dateText === todayText);
 
+  useEffect(() => {
+    if (!scrollRef.current) return;
+    if (todayIndex === -1) return;
+
+    scrollRef.current.scrollLeft =
+      Math.max(0, todayIndex * dayWidth - 300);
+  }, [todayIndex, dayWidth]);
+
   const [resizingTaskId, setResizingTaskId] = useState<number | null>(null);
   const [draggingTaskId, setDraggingTaskId] = useState<number | null>(null);
   const [dragStartX, setDragStartX] = useState(0);
   const [hasDragged, setHasDragged] = useState(false);
+  const scrollRef = useRef<HTMLElement | null>(null);
 
   const barHeight = Math.max(rowHeight - 10, 28);
 
@@ -54,6 +63,7 @@ export default function GanttChart({
 
   return (
     <section
+      ref={scrollRef}
       className="max-h-[calc(100vh-220px)] overflow-auto rounded-2xl bg-white p-4 shadow-sm"
       onMouseMove={(e) => {
 
@@ -198,11 +208,12 @@ export default function GanttChart({
                         setDragStartX(e.clientX);
                         setHasDragged(false);
                       }}
-                      className={`absolute z-20 flex cursor-grab items-center overflow-hidden rounded-md ${task.color} text-left text-sm font-bold text-white shadow-sm hover:brightness-95 active:cursor-grabbing`}
+                      className="absolute z-20 flex cursor-grab items-center overflow-hidden rounded-md text-left text-sm font-bold text-white shadow-sm hover:brightness-95 active:cursor-grabbing"
                       style={{
                         left: `${segment.startIndex * dayWidth}px`,
                         width: `${segment.length * dayWidth}px`,
                         height: `${barHeight}px`,
+                        backgroundColor: task.color?.startsWith("#") ? task.color : "#3b82f6",
                       }}
                     >
                       <div
