@@ -236,6 +236,29 @@ export default function TaskModal({
           </div>
 
           <div>
+            <label className="mb-1 block text-sm font-bold text-slate-600">
+              ガントバーの色
+            </label>
+
+            <div className="flex items-center gap-3">
+              <input
+                type="color"
+                value={color}
+                onChange={(e) => onChangeColor(e.target.value)}
+                className="h-10 w-16 cursor-pointer rounded border border-slate-300"
+              />
+
+              <input
+                type="text"
+                value={color}
+                onChange={(e) => onChangeColor(e.target.value)}
+                placeholder="#3b82f6"
+                className="w-full rounded-xl border border-slate-300 px-4 py-2"
+              />
+            </div>
+          </div>
+
+          <div>
             <div className="mb-1 flex items-center justify-between">
               <label className="block text-sm font-bold text-slate-600">
                 進捗率
@@ -243,29 +266,6 @@ export default function TaskModal({
               <span className="text-sm font-bold text-slate-700">
                 {progress}%
               </span>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm font-bold text-slate-600">
-                ガントバーの色
-              </label>
-
-              <div className="flex items-center gap-3">
-                <input
-                  type="color"
-                  value={color}
-                  onChange={(e) => onChangeColor(e.target.value)}
-                  className="h-10 w-16 cursor-pointer rounded border border-slate-300"
-                />
-
-                <input
-                  type="text"
-                  value={color}
-                  onChange={(e) => onChangeColor(e.target.value)}
-                  placeholder="#3b82f6"
-                  className="w-full rounded-xl border border-slate-300 px-4 py-2"
-                />
-              </div>
             </div>
 
             <input

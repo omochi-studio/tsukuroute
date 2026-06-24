@@ -50,7 +50,7 @@ import { supabase } from "@/utils/supabaseClient";
    ========================= */
 const STORAGE_KEY = "tsukuroute-projects";
 const USER_NAME_KEY = "tsukuroute-user-name";
-const APP_VERSION = "つくる〜と V2.3.0 β";
+const APP_VERSION = "つくる〜と V2.3.2";
 
 /*const isTgsMode =
   typeof window !== "undefined" &&
@@ -209,68 +209,44 @@ export default function Home() {
         (payload) => {
           console.log("Realtime task change:", payload);
 
-          useEffect(() => {
-            if (!isTgsMode) return;
-            if (!isLoaded) return;
+          setProjects((currentProjects) => {
+            if (payload.eventType === "DELETE") {
+              const oldTask = payload.old as any;
 
-            const channel = supabase
-              .channel("tasks-realtime")
-              .on(
-                "postgres_changes",
-                {
-                  event: "*",
-                  schema: "public",
-                  table: "tasks",
-                },
-                (payload) => {
-                  console.log("Realtime task change:", payload);
+              return currentProjects.map((project) => ({
+                ...project,
+                tasks: project.tasks.filter(
+                  (task) => task.id !== oldTask.id
+                ),
+              }));
+            }
 
-                  setProjects((currentProjects) => {
-                    if (payload.eventType === "DELETE") {
-                      const oldTask = payload.old as any;
+            const newRow = payload.new as any;
+            const changedTask = dbTaskToTask(newRow);
+            const projectId = newRow.project_id;
 
-                      return currentProjects.map((project) => ({
-                        ...project,
-                        tasks: project.tasks.filter(
-                          (task) => task.id !== oldTask.id
-                        ),
-                      }));
-                    }
+            return currentProjects.map((project) => {
+              if (project.id !== projectId) return project;
 
-                    const newRow = payload.new as any;
-                    const changedTask = dbTaskToTask(newRow);
-                    const projectId = newRow.project_id;
+              const exists = project.tasks.some(
+                (task) => task.id === changedTask.id
+              );
 
-                    return currentProjects.map((project) => {
-                      if (project.id !== projectId) return project;
+              if (exists) {
+                return {
+                  ...project,
+                  tasks: project.tasks.map((task) =>
+                    task.id === changedTask.id ? changedTask : task
+                  ),
+                };
+              }
 
-                      const exists = project.tasks.some(
-                        (task) => task.id === changedTask.id
-                      );
-
-                      if (exists) {
-                        return {
-                          ...project,
-                          tasks: project.tasks.map((task) =>
-                            task.id === changedTask.id ? changedTask : task
-                          ),
-                        };
-                      }
-
-                      return {
-                        ...project,
-                        tasks: [...project.tasks, changedTask],
-                      };
-                    });
-                  });
-                }
-              )
-              .subscribe();
-
-            return () => {
-              supabase.removeChannel(channel);
-            };
-          }, [isTgsMode, isLoaded]);
+              return {
+                ...project,
+                tasks: [...project.tasks, changedTask],
+              };
+            });
+          });
         }
       )
       .subscribe();
@@ -1018,6 +994,7 @@ export default function Home() {
   }
 
   async function saveTaskToSupabase(projectId: number, task: Task) {
+
     const savedAt = getCurrentDateTimeText();
     const savedBy = getUpdaterName();
 
@@ -2858,7 +2835,7 @@ export default function Home() {
 
             <div className="mb-6 whitespace-pre-line text-sm text-slate-700">
               {`
-つくる〜と v2.3.0
+つくる〜と <v2 className="3 1"></v2>
 
 【新機能】
 
